@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
          }
 
          case 2: {
-            goForward(robot, 13);
+            goForward(robot, 9);
 
             // Hold this thread and then continue running
             //this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_REPEAT_LOOP_MS));
