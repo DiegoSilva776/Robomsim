@@ -24,6 +24,7 @@
 
  float mGoalX = 0.0;
  float mGoalY = 0.0;
+ double mDistanceFromGoal = 0.0;
 
  double mLeftDistance = 0.0;
  double mFrontDistance = 0.0;
@@ -49,6 +50,8 @@
  float getGoalX();
  void setGoalY(float y);
  float getGoalY();
+ void updateDistanceFromGoal();
+ double getDistanceFromGoal();
 
  void setLatestLeftDistance(double distance);
  float getLatestLeftDistance();
@@ -67,6 +70,7 @@
  void goBackward(ArRobot &robot, int numBlocks);
  void turnLeft(ArRobot &robot);
  void turnRight(ArRobot &robot);
+ void correctRotationAngle(ArRobot &robot);
  void turnBackwards(ArRobot &robot);
  void stop(ArRobot &robot);
  
@@ -80,12 +84,14 @@
   * DFS - Online
   */
  int evaluateCandidatesTakeDecision(ArRobot &robot);
- float getDistanceAB(float aX, float aY, float bX, float bY);
+ double getDistanceAB(float aX, float aY, float bX, float bY);
+ void verifyAchievedGoal(ArRobot &robot);
 
  /**
   * Log
   */
  void logRobotStatus(int stepsCount, ArRobot &robot);
+ void logRobotStatusAndGoal(ArRobot &robot);
  void logSimpleMsg(ArRobot &robot, const char *msg);
 
  /**
@@ -95,9 +101,9 @@
     // Init the robot and try to connect to it
     Aria::init();
  
+    ArRobot robot;
     ArArgumentParser parser(&argc, argv);
     parser.loadDefaultArguments();
-    ArRobot robot;
     ArRobotConnector robotConnector(&parser, &robot);
     
     if (!robotConnector.connectRobot()) {
@@ -134,6 +140,9 @@
     setGoalY(2000);
 
     while (!hasAchievedGoal()) {
+       // Update the status of the hasAchievedGoal() function
+       verifyAchievedGoal(robot);
+
        // Verify the candidate positions to where the robot can move to
        action = evaluateCandidatesTakeDecision(robot);
 
@@ -156,12 +165,11 @@
               turnRight(robot);
               goForward(robot, 1);
               break;
-  
-       }
 
-       // Update the status of the sensors and the speed of the robot 
-       updateRobotCoordinatesRotationSpeed(robot);
-       updateSonarReadings(&robot);
+           default:
+              ArUtil::sleep(1000);
+              break;
+       }
 
        stepsCount++;
 
@@ -184,7 +192,7 @@
   * Setters & Getters
   */
  void setLatestX(float x) {
-   mLatestX = x;
+    mLatestX = x;
  }
  
  float getLatestX() {
@@ -213,6 +221,14 @@
 
  float getGoalY() {
     return mGoalY;
+ }
+ 
+ void updateDistanceFromGoal() {
+    mDistanceFromGoal = getDistanceAB(getLatestX(), getLatestY(), getGoalX(), getGoalY());
+ }
+
+ double getDistanceFromGoal() {
+    return mDistanceFromGoal;
  }
 
  void setLatestRotation(float rot) {
@@ -270,6 +286,8 @@
     const int BASE_BLOCK_VEL_MM_SEC = 300;
     const int BASE_BLOCK_TIME_MOTION_SEC = 2400;
    
+    correctRotationAngle(robot);
+
     for (int i = 0; i < numBlocks; i++) {
        robot.lock();
        ArLog::log(ArLog::Normal, "Moving forward, block : (%.d/%.d)", i + 1, numBlocks);
@@ -289,6 +307,8 @@
    const int BASE_BLOCK_VEL_MM_SEC = -300;
    const int BASE_BLOCK_TIME_MOTION_SEC = 2350;
  
+   correctRotationAngle(robot);
+
    for (int i = 0; i < numBlocks; i++) {
       robot.lock();
       ArLog::log(ArLog::Normal, "Moving backward, block : (%.d/%.d)", i + 1, numBlocks);
@@ -304,16 +324,28 @@
    }
  }
  
+ void correctRotationAngle(ArRobot &robot) {
+    robot.lock();
+    float desiredCurrentAngle = round(robot.getTh() / 90) * 90;
+    float correctionAngle = desiredCurrentAngle - robot.getTh();
+    ArLog::log(ArLog::Normal, "correctionAngle: %.2f", correctionAngle);
+
+    robot.setRotVel(correctionAngle);
+    
+    robot.unlock();
+    ArUtil::sleep(1000); 
+ }
+
  void turnLeft(ArRobot &robot) {
     robot.lock();
     ArLog::log(ArLog::Normal, "Turning left ...");
     robot.unlock();
  
-    robot.lock(); 
+    robot.lock();
     robot.setRotVel(90);
     robot.unlock();
     ArUtil::sleep(1020);
- 
+    
     stop(robot);
  }
  
@@ -404,103 +436,146 @@
     robot.unlock();
  }
 
+ void logRobotStatusAndGoal(ArRobot &robot) {
+    robot.lock();
+  
+    // Log the current status of the robot and load the new candidate status
+    ArLog::log(ArLog::Normal, "Robot status according to the goal");
+    ArLog::log(ArLog::Normal, "Distance from goal: [%.2f]", getDistanceFromGoal());
+    ArLog::log(ArLog::Normal, "");
+    ArLog::log(ArLog::Normal, "leftRange : [%.2f]", getLatestLeftDistance());
+    ArLog::log(ArLog::Normal, "frontRange : [%.2f]", getLatestFrontDistance());
+    ArLog::log(ArLog::Normal, "rightRange : [%.2f]", getLatestRightDistance());
+    ArLog::log(ArLog::Normal, "");
+    ArLog::log(ArLog::Normal, "X : [%.2f]", robot.getX());
+    ArLog::log(ArLog::Normal, "Y : [%.2f]", robot.getY());
+    ArLog::log(ArLog::Normal, "Rotation : [%.2f]", robot.getTh());
+    ArLog::log(ArLog::Normal, "");
+    ArLog::log(ArLog::Normal, "getGoalX() : [%.2f]", getGoalX());
+    ArLog::log(ArLog::Normal, "getGoalY() : [%.2f]", getGoalY());
+    ArLog::log(ArLog::Normal, "");
+
+    robot.unlock();
+ }
+
  /**
   * DFS - Online
-  * 
-  * Possible actions:
+  */
+ /**
+  * This function sense the possible actions that can be taken and chose the one that is going to position the robot the closest to 
+  * the goal, the possible action outputs are:
   *  1 - goFoward
   * -1 - goBacward
   *  2 - goLeft
   *  3 - goRight
   */
  int evaluateCandidatesTakeDecision(ArRobot &robot) {
-  robot.lock();
+    // Update the status of the sensors and the speed of the robot 
+    updateRobotCoordinatesRotationSpeed(robot);
+    updateDistanceFromGoal();
+    updateSonarReadings(&robot);
+    logRobotStatusAndGoal(robot);
 
-  float MIN_COLISION_RANGE_MM = 400;
-  float ROBOT_X_SIZE = 700;
-  bool obstacleFront = false;
-  bool obstacleLeft = false;
-  bool obstacleRight = false;
- 
-  // Log the current status of the robot and load the new candidate status
-  ArLog::log(ArLog::Normal, "");
-  ArLog::log(ArLog::Normal, "leftRange : [%.2f]", getLatestLeftDistance());
-  ArLog::log(ArLog::Normal, "frontRange : [%.2f]", getLatestFrontDistance());
-  ArLog::log(ArLog::Normal, "rightRange : [%.2f]", getLatestRightDistance());
-  ArLog::log(ArLog::Normal, "");
-  ArLog::log(ArLog::Normal, "X : [%.2f]", robot.getX());
-  ArLog::log(ArLog::Normal, "Y : [%.2f]", robot.getY());
-  ArLog::log(ArLog::Normal, "Rotation : [%.2f]", robot.getTh());
-  ArLog::log(ArLog::Normal, "");
-  ArLog::log(ArLog::Normal, "getGoalX() : [%.2f]", getGoalX());
-  ArLog::log(ArLog::Normal, "getGoalY() : [%.2f]", getGoalY());
-  ArLog::log(ArLog::Normal, "");
-  
-  if (getLatestFrontDistance() < MIN_COLISION_RANGE_MM) {
-     ArLog::log(ArLog::Normal, "Obstacle ahead");
-     obstacleFront = true;
-  } 
+    robot.lock();
+    float MIN_COLISION_RANGE_MM = 400;
+    float ROBOT_X_SIZE = 700;
+    bool obstacleFront = false;
+    bool obstacleLeft = false;
+    bool obstacleRight = false;
 
-  if (getLatestLeftDistance() < MIN_COLISION_RANGE_MM) {
-     ArLog::log(ArLog::Normal, "Obstacle on the left");
-     obstacleLeft = true;
-  } 
-  
-  if (getLatestRightDistance() < MIN_COLISION_RANGE_MM) {
-     ArLog::log(ArLog::Normal, "Obstacle on the right");
-     obstacleRight = true;
-  }
-  
-  // Take a decision based on the sensor's perception and return the next action
-  if (obstacleFront && obstacleLeft && obstacleRight) {
-     robot.unlock();
-     return -1;
+    if (getLatestFrontDistance() < MIN_COLISION_RANGE_MM) {
+       ArLog::log(ArLog::Normal, "Obstacle ahead");
+       obstacleFront = true;
+    } 
 
-  } else {
-    float distCandFront = 100000000.0;
-    float distCandLeft = 100000000.0;
-    float distCandRight = 100000000.0;
+    if (getLatestLeftDistance() < MIN_COLISION_RANGE_MM) {
+       ArLog::log(ArLog::Normal, "Obstacle on the left");
+       obstacleLeft = true;
+    } 
+  
+    if (getLatestRightDistance() < MIN_COLISION_RANGE_MM) {
+       ArLog::log(ArLog::Normal, "Obstacle on the right");
+       obstacleRight = true;
+    }
+  
+    // Take a decision based on the sensor's perception and return the next action
+    if (obstacleFront && obstacleLeft && obstacleRight) {
+       robot.unlock();
+       return -1;
+
+    } else {
+       float distCandFront = 100000000.0;
+       float distCandLeft = 100000000.0;
+       float distCandRight = 100000000.0;
     
-    if (!obstacleFront) {
-       distCandFront = getDistanceAB(robot.getX() + ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+       if (!obstacleFront) {
+          distCandFront = getDistanceAB(robot.getX() + ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+       }
+
+       if (!obstacleLeft) {
+          distCandLeft = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
+       }
+
+       if (!obstacleRight) {
+          distCandRight = getDistanceAB(robot.getX(), robot.getY() - ROBOT_X_SIZE, getGoalX(), getGoalY());
+       }
+
+       ArLog::log(ArLog::Normal, "Distance if go front : [%.2f]", distCandFront);
+       ArLog::log(ArLog::Normal, "Distance if go left : [%.2f]", distCandLeft);
+       ArLog::log(ArLog::Normal, "Distance if go right : [%.2f]", distCandRight);
+
+       // If the left candidate is the closest to the goal, Turn Left
+       if (distCandLeft < distCandFront && distCandLeft < distCandRight) {
+          robot.unlock();
+          
+          if (distCandLeft < getDistanceFromGoal()) {
+             return 2;
+          } else {
+             return -1;
+          }
+       }
+
+       // If the front candidate is the closest to the goal, Go Forward
+       if (distCandFront <= distCandLeft && distCandFront <= distCandRight) {
+          robot.unlock();
+          
+          if (distCandFront < getDistanceFromGoal()) {
+             return 1;
+          } else {
+             return -1;
+          }
+       }
+
+       // If the right candidate is the closest to the goal, Turn Right
+       if (distCandRight < distCandLeft && distCandRight < distCandFront) {
+          robot.unlock();
+
+          if (distCandRight < getDistanceFromGoal()) {
+             return 3;
+          } else {
+             return -1;
+          }
+       }
+
+       ArLog::log(ArLog::Normal, "Couldn't find a better action, go forward");
+       robot.unlock();
+       return 0;
+    }
+ }
+
+ void verifyAchievedGoal(ArRobot &robot) {
+    robot.lock();
+    
+    int MIN_RADIUS_TOLLERANCE_MM = 400;
+    
+    if (abs(robot.getX() - getGoalX()) < MIN_RADIUS_TOLLERANCE_MM && 
+        abs(robot.getY() - getGoalY()) < MIN_RADIUS_TOLLERANCE_MM) {
+       setHasAchievedGoal(true);
     }
 
-    if (!obstacleLeft) {
-      distCandLeft = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
-    }
+    robot.unlock();
+ }
 
-    if (!obstacleRight) {
-      distCandRight = getDistanceAB(robot.getX(), robot.getY() - ROBOT_X_SIZE, getGoalX(), getGoalY());
-    }
-
-    ArLog::log(ArLog::Normal, "Candidates' Distances : ");
-    ArLog::log(ArLog::Normal, "Front : [%.2f]", distCandFront);
-    ArLog::log(ArLog::Normal, "Left : [%.2f]", distCandLeft);
-    ArLog::log(ArLog::Normal, "Right : [%.2f]", distCandRight);
-
-    // If the left candidate is the closest to the goal, Turn Left
-    if (distCandLeft < distCandFront && distCandLeft < distCandRight) {
-      robot.unlock();
-      return 2;
-    }
-
-    // If the front candidate is the closest to the goal, Go Forward
-    if ((distCandLeft == distCandFront && distCandLeft == distCandRight) ||
-        (distCandFront < distCandLeft && distCandFront < distCandRight)) {
-      robot.unlock();
-      return 1;
-    }
-
-    // If the right candidate is the closest to the goal, Turn Right
-    if (distCandRight < distCandLeft && distCandRight < distCandFront) {
-      robot.unlock();
-      return 3;
-    }
-
-    return 0;
-  }
-}
-
-float getDistanceAB(float aX, float aY, float bX, float bY) {
-   return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
-}
+ double getDistanceAB(float aX, float aY, float bX, float bY) {
+    return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
+ }
