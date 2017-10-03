@@ -13,6 +13,17 @@
  using namespace std;
  
  /**
+  * CLASSES
+  */
+ struct MapBlock {
+    public:
+       double x1;
+       double x2;
+       double y1;
+       double y2;
+ };
+
+ /**
   * DATA MANIPULATION VARIABLES
   */
  bool mHasAchievedGoal = false;
@@ -73,6 +84,12 @@
  void correctRotationAngle(ArRobot &robot);
  void turnBackwards(ArRobot &robot);
  void stop(ArRobot &robot);
+ int mustHeadUp(ArRobot &robot);
+ int mustHeadRight(ArRobot &robot);
+ bool isHeadingUp(ArRobot &robot);
+ bool isHeadingDown(ArRobot &robot);
+ bool isHeadingRight(ArRobot &robot);
+ bool isHeadingLeft(ArRobot &robot);
  
  /**
   * Monitoring Commands
@@ -136,8 +153,8 @@
     int action = 0;
 
     // Initialize the goal
-    setGoalX(3000);
-    setGoalY(2000);
+    setGoalX(1500);
+    setGoalY(1500);
 
     while (!hasAchievedGoal()) {
        // Update the status of the hasAchievedGoal() function
@@ -377,6 +394,50 @@
     robot.unlock();
     ArUtil::sleep(1500);
  }
+
+ int mustHeadUp(ArRobot &robot) {
+    float dy = getGoalY() - robot.getY();
+
+    if (dy > 0) {
+       return 1;
+
+    } else if (dy < 0) {
+       return -1;
+
+    } else {
+       return 0;
+    }
+ }
+
+ int mustHeadRight(ArRobot &robot) {
+    float dx = getGoalX() - robot.getX();
+  
+    if (dx > 0) {
+       return 1;
+
+    } else if (dx < 0) {
+       return -1;
+
+    } else {
+       return 0;
+    }
+ }
+
+ bool isHeadingUp(ArRobot &robot) {
+    return robot.getTh() >= 85 && robot.getTh() <= 95;
+ }
+
+ bool isHeadingDown(ArRobot &robot) {
+    return robot.getTh() >= -95 && robot.getTh() <= -85; 
+ }
+
+ bool isHeadingRight(ArRobot &robot) {
+    return robot.getTh() >= -5 && robot.getTh() <= 5;   
+ }
+
+ bool isHeadingLeft(ArRobot &robot) {
+    return robot.getTh() >= 175 || robot.getTh() <= -175;
+ }
  
  /**
   * Monitoring Commands
@@ -483,6 +544,18 @@
     bool obstacleLeft = false;
     bool obstacleRight = false;
 
+    struct MapBlock mapBlock;
+    mapBlock.x1 = robot.getX();
+    mapBlock.x2 = robot.getX() + MIN_COLISION_RANGE_MM;
+    mapBlock.y1 = robot.getY();
+    mapBlock.y2 = robot.getY() + MIN_COLISION_RANGE_MM;
+
+    ArLog::log(ArLog::Normal, "Current MapBlock");
+    ArLog::log(ArLog::Normal, "mapBlock.x1 %.2f", mapBlock.x1);
+    ArLog::log(ArLog::Normal, "mapBlock.x2 %.2f", mapBlock.x2);
+    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y1);
+    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y2);
+
     if (getLatestFrontDistance() < MIN_COLISION_RANGE_MM) {
        ArLog::log(ArLog::Normal, "Obstacle ahead");
        obstacleFront = true;
@@ -509,15 +582,51 @@
        float distCandRight = 100000000.0;
     
        if (!obstacleFront) {
-          distCandFront = getDistanceAB(robot.getX() + ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+          
+          if (isHeadingRight(robot)) {
+             distCandFront = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
+
+          } else if (isHeadingUp(robot)) {
+             distCandFront = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
+
+          } else if (isHeadingLeft(robot)) {
+             distCandFront = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+
+          } else if (isHeadingDown(robot)) { 
+             distCandFront = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
+          }
        }
 
        if (!obstacleLeft) {
-          distCandLeft = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
+
+          if (isHeadingRight(robot)) {
+             distCandLeft = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
+             
+          } else if (isHeadingUp(robot)) {
+             distCandLeft = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+
+          } else if (isHeadingLeft(robot)) {
+             distCandLeft = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
+
+          } else if (isHeadingDown(robot)) { 
+             distCandLeft = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
+          }
        }
 
        if (!obstacleRight) {
-          distCandRight = getDistanceAB(robot.getX(), robot.getY() - ROBOT_X_SIZE, getGoalX(), getGoalY());
+          
+          if (isHeadingRight(robot)) {
+             distCandRight = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
+             
+          } else if (isHeadingUp(robot)) {
+             distCandRight = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
+             
+          } else if (isHeadingLeft(robot)) {
+             distCandRight = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
+             
+          } else if (isHeadingDown(robot)) { 
+            distCandRight = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+          }
        }
 
        ArLog::log(ArLog::Normal, "Distance if go front : [%.2f]", distCandFront);
@@ -527,39 +636,24 @@
        // If the left candidate is the closest to the goal, Turn Left
        if (distCandLeft < distCandFront && distCandLeft < distCandRight) {
           robot.unlock();
-          
-          if (distCandLeft < getDistanceFromGoal()) {
-             return 2;
-          } else {
-             return -1;
-          }
+          return 2;
        }
 
        // If the front candidate is the closest to the goal, Go Forward
        if (distCandFront <= distCandLeft && distCandFront <= distCandRight) {
           robot.unlock();
-          
-          if (distCandFront < getDistanceFromGoal()) {
-             return 1;
-          } else {
-             return -1;
-          }
+          return 1;
        }
 
        // If the right candidate is the closest to the goal, Turn Right
        if (distCandRight < distCandLeft && distCandRight < distCandFront) {
           robot.unlock();
-
-          if (distCandRight < getDistanceFromGoal()) {
-             return 3;
-          } else {
-             return -1;
-          }
+          return 3;
        }
 
        ArLog::log(ArLog::Normal, "Couldn't find a better action, go forward");
        robot.unlock();
-       return 0;
+       return -1;
     }
  }
 
@@ -579,3 +673,4 @@
  double getDistanceAB(float aX, float aY, float bX, float bY) {
     return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
  }
+
