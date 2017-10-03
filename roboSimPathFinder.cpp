@@ -21,12 +21,28 @@
  /**
   * CLASSES
   */
-  struct MapBlock {
+ class MapBlock {
     public:
        double x1;
        double x2;
        double y1;
        double y2;
+       
+       bool isCoordWithinBlock(double x, double y) {
+          return x1 < x && x < x2 && 
+                 y1 < y && y < y2; 
+       }
+ };
+
+ class State {
+    public:
+       int stepNumber;
+       MapBlock mapBlock;
+       bool triedActionForward;
+       bool triedActionLeft;
+       bool triedActionRight;
+       bool triedActionBackwards;
+       bool isForbiddenState;
  };
 
  /**
@@ -35,14 +51,26 @@
  float MIN_COLISION_RANGE_MM = 100;
  float ROBOT_X_SIZE = 700;
 
+ // Initialization
  int numArgs = 0;
  const string ARG_DROBOT_COORD = "-Drobot.coord";
- std::map<string,string> args;
- std::map<int,double> robotConfigArgs;
- std::map<int,double> goalConfigArgs;
+ std::map<string, string> args;
+ std::map<int, double> robotConfigArgs;
+ std::map<int, double> goalConfigArgs;
+
+ // Data manipudation
+ const int ACTION_BACK = -1;
+ const int ACTION_FRONT = 1;
+ const int ACTION_LEFT = 2;
+ const int ACTION_RIGHT = 3;
+
+ std::map<int, State> resultTable;
+ std::map<int, State> tryTable;
+ State previousState;
+ int previousAction;
 
  bool mHasAchievedGoal = false;
-
+ 
  float mLatestX = 0.0;
  float mLatestY = 0.0;
  float mLatestRot = 0.0;
@@ -116,13 +144,14 @@
  /**
   * Monitoring Commands
   */
+ State updateAgenteState(ArRobot &robot, int action, int stepsCount);
  void updateRobotCoordinatesRotationSpeed(ArRobot &robot);
  void updateSonarReadings(ArRobot *robot);
  
  /**
   * DFS - Online
   */
- int evaluateCandidatesTakeDecision(ArRobot &robot);
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state);
  double getDistanceAB(float aX, float aY, float bX, float bY);
  void verifyAchievedGoal(ArRobot &robot);
 
@@ -184,25 +213,28 @@
        // Update the status of the hasAchievedGoal() function
        verifyAchievedGoal(robot);
 
+       // Update the status of the sensors and the speed of the robot 
+       State currentState = updateAgenteState(robot, action, stepsCount);
+       
        // Verify the candidate positions to where the robot can move to
-       action = evaluateCandidatesTakeDecision(robot);
+       action = evaluateCandidatesTakeDecision(robot, currentState);
 
        switch (action) {
 
-           case -1:
+           case ACTION_BACK:
               goBackward(robot, 1);
               break;
 
-           case 1:
+           case ACTION_FRONT:
               goForward(robot, 1);
               break;
 
-           case 2: 
+           case ACTION_LEFT:
               turnLeft(robot);
               goForward(robot, 1);
               break;
 
-           case 3: 
+           case ACTION_RIGHT: 
               turnRight(robot);
               goForward(robot, 1);
               break;
@@ -212,6 +244,7 @@
               break;
        }
 
+       previousState = currentState;
        stepsCount++;
 
        // Log
@@ -645,6 +678,42 @@
  /**
   * DFS - Online
   */
+ State updateAgenteState(ArRobot &robot, int action, int stepsCount) {
+    previousAction = action;
+    
+    updateRobotCoordinatesRotationSpeed(robot);
+    updateDistanceFromGoal();
+    updateSonarReadings(&robot);
+    logRobotStatusAndGoal(robot);
+
+    robot.lock();
+    MapBlock mapBlock;
+    mapBlock.x1 = robot.getX();
+    mapBlock.x2 = robot.getX() + MIN_COLISION_RANGE_MM;
+    mapBlock.y1 = robot.getY();
+    mapBlock.y2 = robot.getY() + MIN_COLISION_RANGE_MM;
+    
+    State state;
+    state.stepNumber = stepsCount;
+    state.mapBlock = mapBlock;
+    state.triedActionForward = false;
+    state.triedActionLeft = false;
+    state.triedActionRight = false;
+    state.triedActionBackwards = false;
+    state.isForbiddenState = false;
+
+    resultTable[stepsCount] = state;
+
+    ArLog::log(ArLog::Normal, "Current MapBlock");
+    ArLog::log(ArLog::Normal, "mapBlock.x1 %.2f", mapBlock.x1);
+    ArLog::log(ArLog::Normal, "mapBlock.x2 %.2f", mapBlock.x2);
+    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y1);
+    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y2);  
+    robot.unlock();
+
+    return state;
+ }
+
  /**
   * This function sense the possible actions that can be taken and chose the one that is going to position the robot the closest to 
   * the goal, the possible action outputs are:
@@ -653,29 +722,11 @@
   *  2 - goLeft
   *  3 - goRight
   */
- int evaluateCandidatesTakeDecision(ArRobot &robot) {
-    // Update the status of the sensors and the speed of the robot 
-    updateRobotCoordinatesRotationSpeed(robot);
-    updateDistanceFromGoal();
-    updateSonarReadings(&robot);
-    logRobotStatusAndGoal(robot);
-
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state) {
     robot.lock();
     bool obstacleFront = false;
     bool obstacleLeft = false;
     bool obstacleRight = false;
-
-    struct MapBlock mapBlock;
-    mapBlock.x1 = robot.getX();
-    mapBlock.x2 = robot.getX() + MIN_COLISION_RANGE_MM;
-    mapBlock.y1 = robot.getY();
-    mapBlock.y2 = robot.getY() + MIN_COLISION_RANGE_MM;
-
-    ArLog::log(ArLog::Normal, "Current MapBlock");
-    ArLog::log(ArLog::Normal, "mapBlock.x1 %.2f", mapBlock.x1);
-    ArLog::log(ArLog::Normal, "mapBlock.x2 %.2f", mapBlock.x2);
-    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y1);
-    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y2);
 
     if (getLatestFrontDistance() < MIN_COLISION_RANGE_MM) {
        ArLog::log(ArLog::Normal, "Obstacle ahead");
@@ -754,27 +805,54 @@
        ArLog::log(ArLog::Normal, "Distance if go left : [%.2f]", distCandLeft);
        ArLog::log(ArLog::Normal, "Distance if go right : [%.2f]", distCandRight);
 
+       if (distCandFront == 100000000.0) {
+          state.triedActionForward = true;
+       }
+
+       if (distCandLeft == 100000000.0) {
+          state.triedActionLeft = true;
+       }
+
+       if (distCandRight == 100000000.0) {
+          state.triedActionRight = true;
+       }
+
+       resultTable[state.stepNumber] = state;
+       
        // If the left candidate is the closest to the goal, Turn Left
        if (distCandLeft < distCandFront && distCandLeft < distCandRight) {
           robot.unlock();
-          return 2;
+          return ACTION_LEFT;
        }
 
        // If the front candidate is the closest to the goal, Go Forward
        if (distCandFront <= distCandLeft && distCandFront <= distCandRight) {
           robot.unlock();
-          return 1;  
+
+          if (previousAction == ACTION_FRONT && previousState.mapBlock.isCoordWithinBlock(robot.getX(), robot.getY())) {
+             state.triedActionBackwards = true;
+
+             if (state.triedActionForward && state.triedActionLeft && state.triedActionRight) {
+                state.isForbiddenState = true;
+             }
+
+             resultTable[state.stepNumber] = state;
+
+             return ACTION_BACK;
+          }
+
+          return ACTION_FRONT;
        }
 
        // If the right candidate is the closest to the goal, Turn Right
        if (distCandRight < distCandLeft && distCandRight < distCandFront) {
           robot.unlock();
-          return 3;
+          return ACTION_RIGHT;
        }
 
        ArLog::log(ArLog::Normal, "Couldn't find a better action, go forward");
        robot.unlock();
-       return -1;
+       return ACTION_BACK;
     }
  }
 
