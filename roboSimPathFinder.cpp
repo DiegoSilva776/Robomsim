@@ -5,17 +5,23 @@
  * Licese: MIT
  */
  #include "Aria.h"
+ #include <ArAnalogGyro.h>
  #include <ArRecurrentTask.h>
- #include <string>
- #include <iostream>
+ #include <ArKeyHandler.h>
  #include <thread>
+ #include <string>
+ #include <fstream>
+ #include <iostream>
+ #include <sstream>
+ #include <algorithm>
+ #include <iterator>
  
  using namespace std;
  
  /**
   * CLASSES
   */
- struct MapBlock {
+  struct MapBlock {
     public:
        double x1;
        double x2;
@@ -24,8 +30,17 @@
  };
 
  /**
-  * DATA MANIPULATION VARIABLES
+  * DATA MANIPULATION VARIABLES & CONSTANTS
   */
+ float MIN_COLISION_RANGE_MM = 100;
+ float ROBOT_X_SIZE = 700;
+
+ int numArgs = 0;
+ const string ARG_DROBOT_COORD = "-Drobot.coord";
+ std::map<string,string> args;
+ std::map<int,double> robotConfigArgs;
+ std::map<int,double> goalConfigArgs;
+
  bool mHasAchievedGoal = false;
 
  float mLatestX = 0.0;
@@ -45,6 +60,12 @@
  /**
   * FUNCTIONS' DECLARATION
   */ 
+ /**
+  * Input
+  */
+ void readConfigArgs(int argc, char **argv);
+ void readDrobotArg(char **argv);
+
  /**
   * Setters & Getters
   */
@@ -77,6 +98,7 @@
  /**
   * Motion Commands
   */
+ void normalizeRobotRotation(ArRobot &robot);
  void goForward(ArRobot &robot, int distanceMM);
  void goBackward(ArRobot &robot, int numBlocks);
  void turnLeft(ArRobot &robot);
@@ -118,6 +140,9 @@
     // Init the robot and try to connect to it
     Aria::init();
  
+    // Get the initialization arguments
+    readConfigArgs(argc, argv);
+    
     ArRobot robot;
     ArArgumentParser parser(&argc, argv);
     parser.loadDefaultArguments();
@@ -143,7 +168,7 @@
     // Sonar
     ArSonarDevice sonar;
     robot.addRangeDevice(&sonar);
- 
+
     // Turn the robot on
     robot.enableMotors();
     robot.runAsync(true);
@@ -152,10 +177,9 @@
     int stepsCount = 0;
     int action = 0;
 
-    // Initialize the goal
-    setGoalX(1500);
-    setGoalY(1500);
-
+    // Initialize the position of the robot, by rotating the robot to 0 degress
+    normalizeRobotRotation(robot);
+    
     while (!hasAchievedGoal()) {
        // Update the status of the hasAchievedGoal() function
        verifyAchievedGoal(robot);
@@ -205,6 +229,83 @@
  /**
   * FUNCTIONS' IMPLEMENTATION
   */
+ /**
+  * Input
+  */
+ void readConfigArgs(int argc, char **argv) {
+    numArgs = argc - 1;
+    readDrobotArg(argv);
+ }
+
+ void readDrobotArg(char **argv) {
+    // Get the Drobot arg value
+    std::stringstream ss;
+    ss.str(argv[1]);
+    std::string itemDrobotArg;
+
+    while (getline(ss, itemDrobotArg, '=')) {
+       args[ARG_DROBOT_COORD] = itemDrobotArg;
+    }
+
+    // Read the lines of the Drobot configuration file
+    fstream drobotCoordsFile(args[ARG_DROBOT_COORD], fstream::in);
+    std::map<int,string> drobotConfigFileLines;
+    int drobotConfigFileLinesCount = 0;
+    std::string drobotFileLine;
+    
+    while (getline(drobotCoordsFile, drobotFileLine)) {
+      drobotConfigFileLines[drobotConfigFileLinesCount] = drobotFileLine;
+      drobotConfigFileLinesCount++;
+    }
+
+    // Get the configuration arguments of the robot out of the Drobot file
+    std::stringstream ssRobotConfig;
+    ssRobotConfig.str(drobotConfigFileLines[0]);
+    std::string itemRobotConfig;
+    int robotConfigArgsCount = 0;
+
+    while (getline(ssRobotConfig, itemRobotConfig, ',')) {
+       robotConfigArgs[robotConfigArgsCount] = stod(itemRobotConfig);
+       robotConfigArgsCount++;
+    }
+
+    // Get the configuration arguments of the goal out of the Drobot file
+    std::stringstream ssGoalConfig;
+    ssGoalConfig.str(drobotConfigFileLines[1]);
+    std::string itemGoalConfig;
+    int goalConfigArgsCount = 0;
+
+    while (getline(ssGoalConfig, itemGoalConfig, ',')) {
+       goalConfigArgs[goalConfigArgsCount] = stod(itemGoalConfig);
+       goalConfigArgsCount++;
+    }
+
+    // Set up the initial position of the robot and the goal
+    setLatestX(robotConfigArgs[0]);
+    setLatestY(robotConfigArgs[1]);
+    setLatestRotation(robotConfigArgs[2]);
+    setGoalX(goalConfigArgs[0]);
+    setGoalY(goalConfigArgs[1]);
+
+    cout << "........................" << endl;
+    cout << "CONFIGURATION ARGUMENTS: " << endl;
+    cout << "" << endl;
+    cout << "Drobot.coord filename: " << endl;
+    cout << args[ARG_DROBOT_COORD] << endl;
+    cout << "" << endl;
+    cout << "Robot config args: " << endl;
+    cout << robotConfigArgs[0] << endl;
+    cout << robotConfigArgs[1] << endl;
+    cout << robotConfigArgs[2] << endl;
+    cout << "" << endl;
+    cout << "Goal config args: " << endl;
+    cout << goalConfigArgs[0] << endl;
+    cout << goalConfigArgs[1] << endl;
+    cout << "........................" << endl;
+
+    drobotCoordsFile.close();
+ }
+
  /**
   * Setters & Getters
   */
@@ -299,6 +400,30 @@
  /**
   * Motion Commands
   */
+ void normalizeRobotRotation(ArRobot &robot) {
+    // Set the initial position of the robot logically
+    robot.moveTo(ArPose(getLatestX(),getLatestY(),getLatestRotation()));
+    ArUtil::sleep(1000);
+
+    // Set the initial position of the robot phisically, step 1
+    robot.lock();
+    int numRoundsNormalization = 0;
+    
+    if (getLatestRotation() > 0) {
+       robot.setRotVel(-getLatestRotation());
+       ArLog::log(ArLog::Normal, "Normalizing the intial rotation of the robot %.2f", -getLatestRotation());
+    } else {
+       robot.setRotVel(getLatestRotation());
+       ArLog::log(ArLog::Normal, "Normalizing the intial rotation of the robot %.2f", getLatestRotation());
+    }
+        
+    robot.unlock();
+    ArUtil::sleep(1000);
+
+    // Set the initial position of the robot, step 2
+    correctRotationAngle(robot);
+ }
+
  void goForward(ArRobot &robot, int numBlocks) {
     const int BASE_BLOCK_VEL_MM_SEC = 300;
     const int BASE_BLOCK_TIME_MOTION_SEC = 2400;
@@ -346,9 +471,7 @@
     float desiredCurrentAngle = round(robot.getTh() / 90) * 90;
     float correctionAngle = desiredCurrentAngle - robot.getTh();
     ArLog::log(ArLog::Normal, "correctionAngle: %.2f", correctionAngle);
-
     robot.setRotVel(correctionAngle);
-    
     robot.unlock();
     ArUtil::sleep(1000); 
  }
@@ -538,8 +661,6 @@
     logRobotStatusAndGoal(robot);
 
     robot.lock();
-    float MIN_COLISION_RANGE_MM = 400;
-    float ROBOT_X_SIZE = 700;
     bool obstacleFront = false;
     bool obstacleLeft = false;
     bool obstacleRight = false;
@@ -642,7 +763,7 @@
        // If the front candidate is the closest to the goal, Go Forward
        if (distCandFront <= distCandLeft && distCandFront <= distCandRight) {
           robot.unlock();
-          return 1;
+          return 1;  
        }
 
        // If the right candidate is the closest to the goal, Turn Right
@@ -660,11 +781,10 @@
  void verifyAchievedGoal(ArRobot &robot) {
     robot.lock();
     
-    int MIN_RADIUS_TOLLERANCE_MM = 400;
-    
-    if (abs(robot.getX() - getGoalX()) < MIN_RADIUS_TOLLERANCE_MM && 
-        abs(robot.getY() - getGoalY()) < MIN_RADIUS_TOLLERANCE_MM) {
+    if (abs(robot.getX() - getGoalX()) < MIN_COLISION_RANGE_MM && 
+        abs(robot.getY() - getGoalY()) < MIN_COLISION_RANGE_MM) {
        setHasAchievedGoal(true);
+       ArLog::log(ArLog::Normal, "Robot has achieved goal [:");
     }
 
     robot.unlock();
@@ -673,4 +793,3 @@
  double getDistanceAB(float aX, float aY, float bX, float bY) {
     return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
  }
-
