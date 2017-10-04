@@ -489,7 +489,12 @@
        robot.setVel(BASE_BLOCK_VEL_MM_SEC);
        robot.unlock();
  
-       ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC);
+       if (getDistanceFromGoal() < ROBOT_X_SIZE) {
+          ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC / 3);
+       } else {
+          ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC);  
+       }
+       
        stop(robot);
     }
  }
