@@ -15,6 +15,9 @@
  #include <sstream>
  #include <algorithm>
  #include <iterator>
+ #include <stack>
+ #include <vector>
+ #include <queue>
  
  using namespace std;
  
@@ -32,6 +35,16 @@
           return x1 < x && x < x2 && 
                  y1 < y && y < y2; 
        }
+
+       string toString() {
+          return "([" + str(x1) + "," + str(x2) + "], [" + str(y1) + "," + str(y2) + "])";
+       }
+
+       string str(double number) {
+          std::ostringstream strs;
+          strs << number;
+          std::string str = strs.str();
+       }
  };
 
  class State {
@@ -43,12 +56,14 @@
        bool triedActionRight;
        bool triedActionBackwards;
        bool isForbiddenState;
+
+       vector<State> children;
  };
 
  /**
   * DATA MANIPULATION VARIABLES & CONSTANTS
   */
- float MIN_COLISION_RANGE_MM = 100;
+ float MIN_COLISION_RANGE_MM = 400;
  float ROBOT_X_SIZE = 700;
 
  // Initialization
@@ -64,10 +79,9 @@
  const int ACTION_LEFT = 2;
  const int ACTION_RIGHT = 3;
 
- std::map<int, State> resultTable;
- std::map<int, State> tryTable;
- State previousState;
- int previousAction;
+ std::stack<State> Q;
+ std::vector<State> children;
+ string path = "";
 
  bool mHasAchievedGoal = false;
  
@@ -144,13 +158,20 @@
  /**
   * Monitoring Commands
   */
- State updateAgenteState(ArRobot &robot, int action, int stepsCount);
+ State updateAgentState(ArRobot &robot, int action, int stepsCount);
  void updateRobotCoordinatesRotationSpeed(ArRobot &robot);
  void updateSonarReadings(ArRobot *robot);
  
  /**
   * DFS - Online
   */
+ // TODO: Review the methods below once the implementation of the DFS algorithm is complete
+ State getGoalState(ArRobot &robot);
+ string deepFirstSearch(ArRobot &robot, State &rootState, State &goalState);
+ void removeStateFromPath(stack<State> &path, State &state);
+ void addStateToPath(stack<State> &path, State &state);
+ //./TODO
+
  int evaluateCandidatesTakeDecision(ArRobot &robot, State &state);
  double getDistanceAB(float aX, float aY, float bX, float bY);
  void verifyAchievedGoal(ArRobot &robot);
@@ -202,54 +223,16 @@
     robot.enableMotors();
     robot.runAsync(true);
 
-    // Main program
-    int stepsCount = 0;
-    int action = 0;
-
     // Initialize the position of the robot, by rotating the robot to 0 degress
     normalizeRobotRotation(robot);
     
-    while (!hasAchievedGoal()) {
-       // Update the status of the hasAchievedGoal() function
-       verifyAchievedGoal(robot);
+    // Update the status of the sensors and the speed of the robot 
+    State rootState = updateAgentState(robot, 0, 0);
+    State goalState = getGoalState(robot);
+    string path = deepFirstSearch(robot, rootState, goalState);
 
-       // Update the status of the sensors and the speed of the robot 
-       State currentState = updateAgenteState(robot, action, stepsCount);
-       
-       // Verify the candidate positions to where the robot can move to
-       action = evaluateCandidatesTakeDecision(robot, currentState);
-
-       switch (action) {
-
-           case ACTION_BACK:
-              goBackward(robot, 1);
-              break;
-
-           case ACTION_FRONT:
-              goForward(robot, 1);
-              break;
-
-           case ACTION_LEFT:
-              turnLeft(robot);
-              goForward(robot, 1);
-              break;
-
-           case ACTION_RIGHT: 
-              turnRight(robot);
-              goForward(robot, 1);
-              break;
-
-           default:
-              ArUtil::sleep(1000);
-              break;
-       }
-
-       previousState = currentState;
-       stepsCount++;
-
-       // Log
-       logRobotStatus(stepsCount, robot);
-    }
+    cout << "........ Path ........." << endl;
+    cout << path << endl;
     
     robot.stopRunning();
     robot.waitForRunExit();
@@ -616,9 +599,9 @@
       
        // Get the left readings and right readings off of the sonar
        robot->lock();
-       leftRange = (mySonar->currentReadingPolar(80, 100) - robot->getRobotRadius());
-       frontRange = (mySonar->currentReadingPolar(0, 10) - robot->getRobotRadius());
-       rightRange = (mySonar->currentReadingPolar(-100, -80) - robot->getRobotRadius());
+       leftRange = (mySonar->currentReadingPolar(80, 120) - robot->getRobotRadius());
+       frontRange = (mySonar->currentReadingPolar(-15, 15) - robot->getRobotRadius());
+       rightRange = (mySonar->currentReadingPolar(-120, -80) - robot->getRobotRadius());
        robot->unlock(); 
 
        setLatestLeftDistance(leftRange);
@@ -678,9 +661,121 @@
  /**
   * DFS - Online
   */
- State updateAgenteState(ArRobot &robot, int action, int stepsCount) {
-    previousAction = action;
+ State getGoalState(ArRobot &robot) {
+    robot.lock();
+    MapBlock mapBlock;
+    mapBlock.x1 = getGoalX() - (getGoalX() / 2);
+    mapBlock.x2 = getGoalX() + (getGoalX() / 2);
+    mapBlock.y1 = getGoalY() - (getGoalY() / 2);
+    mapBlock.y2 = getGoalY() + (getGoalY() / 2);
     
+    State state;
+    state.stepNumber = -1;
+    state.mapBlock = mapBlock;
+    state.triedActionForward = false;
+    state.triedActionLeft = false;
+    state.triedActionRight = false;
+    state.triedActionBackwards = false;
+    state.isForbiddenState = false;
+    robot.unlock();
+ }
+
+ string deepFirstSearch(ArRobot &robot, State &root, State &goal) {
+    /*
+    Q.push(root);
+
+    while (!Q.empty()) {
+      State t = Q.top();
+      path += t.mapBlock.toString();
+
+      Q.pop();
+
+      verifyAchievedGoal(robot);
+
+      if (hasAchievedGoal()) {
+        return path;
+      }
+
+      if (t.mapBlock.isCoordWithinBlock(goal.mapBlock.x1, goal.mapBlock.y1)) {
+        return path;
+      }
+
+      children = t.children;
+      std::reverse(children.begin(), children.end());
+
+      for (int i = 0; i < children.size(); ++i){
+        Q.push(children[i]);
+      }
+    }
+    */
+
+    int stepsCount = 0;
+    int action = 0;
+    
+    // Initialize the system
+    State currentState = updateAgentState(robot, action, stepsCount);
+    goForward(robot, 1);
+    addStateToPath(Q, currentState);
+
+    while (!hasAchievedGoal()) {
+      // Update the status of the hasAchievedGoal() function
+      verifyAchievedGoal(robot);
+
+      // Update the status of the sensors and the speed of the robot 
+      currentState = updateAgentState(robot, action, stepsCount);
+      
+      // Verify the candidate positions to where the robot can move to
+      action = evaluateCandidatesTakeDecision(robot, currentState);
+
+      switch (action) {
+
+          case ACTION_BACK:
+             goBackward(robot, 1);
+             removeStateFromPath(Q, currentState);
+             break;
+
+          case ACTION_FRONT:
+             goForward(robot, 1);
+             addStateToPath(Q, currentState);
+             break;
+
+          case ACTION_LEFT:
+             turnLeft(robot);
+             goForward(robot, 1);
+             break;
+
+          case ACTION_RIGHT: 
+             turnRight(robot);
+             goForward(robot, 1);
+             break;
+
+          default:
+             ArUtil::sleep(1000);
+             break;
+      }
+
+      stepsCount++;
+
+      // Log
+      logRobotStatus(stepsCount, robot);
+   }
+
+   return path;
+ }
+
+ void verifyAchievedGoal(ArRobot &robot) {
+  robot.lock();
+  
+  if (abs(robot.getX() - getGoalX()) < MIN_COLISION_RANGE_MM && 
+      abs(robot.getY() - getGoalY()) < MIN_COLISION_RANGE_MM) {
+     setHasAchievedGoal(true);
+     ArLog::log(ArLog::Normal, "Robot has achieved goal [:");
+  }
+
+  robot.unlock();
+ }
+
+ State updateAgentState(ArRobot &robot, int action, int stepsCount) {
     updateRobotCoordinatesRotationSpeed(robot);
     updateDistanceFromGoal();
     updateSonarReadings(&robot);
@@ -702,13 +797,12 @@
     state.triedActionBackwards = false;
     state.isForbiddenState = false;
 
-    resultTable[stepsCount] = state;
-
     ArLog::log(ArLog::Normal, "Current MapBlock");
     ArLog::log(ArLog::Normal, "mapBlock.x1 %.2f", mapBlock.x1);
     ArLog::log(ArLog::Normal, "mapBlock.x2 %.2f", mapBlock.x2);
     ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y1);
-    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y2);  
+    ArLog::log(ArLog::Normal, "mapBlock.y1 %.2f", mapBlock.y2);
+    ArLog::log(ArLog::Normal, "");
     robot.unlock();
 
     return state;
@@ -728,23 +822,27 @@
     bool obstacleLeft = false;
     bool obstacleRight = false;
 
-    if (getLatestFrontDistance() < MIN_COLISION_RANGE_MM) {
+    if (getLatestFrontDistance() < ROBOT_X_SIZE) {
        ArLog::log(ArLog::Normal, "Obstacle ahead");
        obstacleFront = true;
+       state.triedActionForward = true;
     } 
 
-    if (getLatestLeftDistance() < MIN_COLISION_RANGE_MM) {
+    if (getLatestLeftDistance() < ROBOT_X_SIZE) {
        ArLog::log(ArLog::Normal, "Obstacle on the left");
        obstacleLeft = true;
+       state.triedActionLeft = true;
     } 
   
-    if (getLatestRightDistance() < MIN_COLISION_RANGE_MM) {
+    if (getLatestRightDistance() < ROBOT_X_SIZE) {
        ArLog::log(ArLog::Normal, "Obstacle on the right");
        obstacleRight = true;
+       state.triedActionRight = true;
     }
   
     // Take a decision based on the sensor's perception and return the next action
     if (obstacleFront && obstacleLeft && obstacleRight) {
+       state.isForbiddenState = true;
        robot.unlock();
        return -1;
 
@@ -752,19 +850,34 @@
        float distCandFront = 100000000.0;
        float distCandLeft = 100000000.0;
        float distCandRight = 100000000.0;
-    
+
+       double projFrontCoordX = 0.0;
+       double projFrontCoordY = 0.0;
+       double projLeftCoordX = 0.0;
+       double projLeftCoordY = 0.0;
+       double projRightCoordX = 0.0;
+       double projRightCoordY = 0.0;
+
        if (!obstacleFront) {
           
           if (isHeadingRight(robot)) {
+             projFrontCoordX = (robot.getX() + ((2 * ROBOT_X_SIZE) / 2));
+             projFrontCoordY = robot.getY();
              distCandFront = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
 
           } else if (isHeadingUp(robot)) {
+             projFrontCoordX = robot.getX();
+             projFrontCoordY = robot.getY() + (ROBOT_X_SIZE / 2);
              distCandFront = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
 
           } else if (isHeadingLeft(robot)) {
+             projFrontCoordX = robot.getX() - ((ROBOT_X_SIZE / 2));
+             projFrontCoordY = robot.getY();
              distCandFront = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
 
           } else if (isHeadingDown(robot)) { 
+             projFrontCoordX = robot.getX();
+             projFrontCoordY = robot.getY() - (ROBOT_X_SIZE / 2);
              distCandFront = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
           }
        }
@@ -772,15 +885,23 @@
        if (!obstacleLeft) {
 
           if (isHeadingRight(robot)) {
+             projLeftCoordX = robot.getX();
+             projLeftCoordY = robot.getY() + (ROBOT_X_SIZE / 2);
              distCandLeft = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
              
           } else if (isHeadingUp(robot)) {
+             projLeftCoordX = robot.getX() - (ROBOT_X_SIZE / 2);
+             projLeftCoordY = robot.getY();
              distCandLeft = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
 
           } else if (isHeadingLeft(robot)) {
+             projLeftCoordX = robot.getX();
+             projLeftCoordY = robot.getY() - ((2 * ROBOT_X_SIZE) / 2);
              distCandLeft = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
 
           } else if (isHeadingDown(robot)) { 
+             projLeftCoordX = robot.getX() + ((2 * ROBOT_X_SIZE) / 2);
+             projLeftCoordY = robot.getY();
              distCandLeft = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
           }
        }
@@ -788,16 +909,24 @@
        if (!obstacleRight) {
           
           if (isHeadingRight(robot)) {
+             projRightCoordX = robot.getX();
+             projRightCoordY = robot.getY() - ((2 * ROBOT_X_SIZE) / 2);
              distCandRight = getDistanceAB(robot.getX(), robot.getY() - (2 * ROBOT_X_SIZE), getGoalX(), getGoalY());
              
           } else if (isHeadingUp(robot)) {
+             projRightCoordX = robot.getX() + ((2 * ROBOT_X_SIZE) / 2);
+             projRightCoordY = robot.getY();
              distCandRight = getDistanceAB(robot.getX() + (2 * ROBOT_X_SIZE), robot.getY(), getGoalX(), getGoalY());
              
           } else if (isHeadingLeft(robot)) {
+             projRightCoordX = robot.getX();
+             projRightCoordY = robot.getY() + (ROBOT_X_SIZE / 2);
              distCandRight = getDistanceAB(robot.getX(), robot.getY() + ROBOT_X_SIZE, getGoalX(), getGoalY());
              
           } else if (isHeadingDown(robot)) { 
-            distCandRight = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
+             projRightCoordX = robot.getX() - (ROBOT_X_SIZE / 2);
+             projRightCoordY = robot.getY();
+             distCandRight = getDistanceAB(robot.getX() - ROBOT_X_SIZE, robot.getY(), getGoalX(), getGoalY());
           }
        }
 
@@ -817,37 +946,82 @@
           state.triedActionRight = true;
        }
 
-       resultTable[state.stepNumber] = state;
-       
        // If the left candidate is the closest to the goal, Turn Left
-       if (distCandLeft < distCandFront && distCandLeft < distCandRight) {
+       if (!obstacleLeft && distCandLeft < distCandFront && distCandLeft < distCandRight) {
           robot.unlock();
-          return ACTION_LEFT;
+
+          if (!Q.empty()) {
+             State previousState = Q.top();
+            
+             if (previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+                         
+                if (!obstacleFront && distCandFront <= distCandRight && 
+                    previousState.mapBlock.isCoordWithinBlock(projFrontCoordX, projFrontCoordY)) {
+                   return ACTION_FRONT;
+            
+                } else if (!obstacleRight) {
+                   return ACTION_RIGHT;
+                }
+             } else {
+                return ACTION_LEFT;  
+             }
+            
+             return ACTION_BACK;  
+          } else {
+             return ACTION_LEFT;
+          }
        }
 
        // If the front candidate is the closest to the goal, Go Forward
-       if (distCandFront <= distCandLeft && distCandFront <= distCandRight) {
+       if (!obstacleFront && distCandFront <= distCandLeft && distCandFront <= distCandRight) {
           robot.unlock();
 
-          if (previousAction == ACTION_FRONT && previousState.mapBlock.isCoordWithinBlock(robot.getX(), robot.getY())) {
-             state.triedActionBackwards = true;
-
-             if (state.triedActionForward && state.triedActionLeft && state.triedActionRight) {
-                state.isForbiddenState = true;
+          if (!Q.empty()) {
+             State previousState = Q.top();
+          
+             if (previousState.mapBlock.isCoordWithinBlock(projFrontCoordX, projFrontCoordY)) {
+                       
+                if (!obstacleLeft && distCandLeft <= distCandRight && 
+                    previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+                   return ACTION_LEFT;
+          
+                } else if (!obstacleRight) {
+                   return ACTION_RIGHT;
+                }
+             } else {
+                return ACTION_FRONT;
              }
-
-             resultTable[state.stepNumber] = state;
-
+          
              return ACTION_BACK;
+          } else {
+             return ACTION_FRONT;
           }
-
-          return ACTION_FRONT;
        }
 
        // If the right candidate is the closest to the goal, Turn Right
-       if (distCandRight < distCandLeft && distCandRight < distCandFront) {
+       if (!obstacleRight && distCandRight < distCandLeft && distCandRight < distCandFront) {
           robot.unlock();
-          return ACTION_RIGHT;
+
+          if (!Q.empty()) {
+             State previousState = Q.top();
+          
+             if (previousState.mapBlock.isCoordWithinBlock(projRightCoordX, projRightCoordY)) {
+                       
+                if (!obstacleLeft && distCandLeft <= distCandRight && 
+                    previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+                   return ACTION_LEFT;
+          
+                } else if (!obstacleRight) {
+                   return ACTION_RIGHT;
+                }
+             } else {
+                return ACTION_RIGHT;
+             }
+          
+             return ACTION_BACK;
+          } else {
+             return ACTION_RIGHT;
+          }
        }
 
        ArLog::log(ArLog::Normal, "Couldn't find a better action, go forward");
@@ -856,18 +1030,20 @@
     }
  }
 
- void verifyAchievedGoal(ArRobot &robot) {
-    robot.lock();
-    
-    if (abs(robot.getX() - getGoalX()) < MIN_COLISION_RANGE_MM && 
-        abs(robot.getY() - getGoalY()) < MIN_COLISION_RANGE_MM) {
-       setHasAchievedGoal(true);
-       ArLog::log(ArLog::Normal, "Robot has achieved goal [:");
-    }
-
-    robot.unlock();
- }
-
  double getDistanceAB(float aX, float aY, float bX, float bY) {
     return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
+ }
+
+ void removeStateFromPath(stack<State> &path, State &state) {
+    State previousState = path.top();
+
+    // Navigate back to the previous state
+
+    // Try a path at the last node that hasn't been explored, otherwise go back to the previous node.
+
+    path.pop();
+ }
+
+ void addStateToPath(stack<State> &path, State &state) {
+    path.push(state);
  }
