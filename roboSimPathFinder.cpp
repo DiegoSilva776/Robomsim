@@ -80,7 +80,7 @@
  const int ACTION_RIGHT = 3;
 
  std::stack<State> Q;
- std::vector<State> children;
+ std::stack<State> forbiddenStates;
  string path = "";
 
  bool mHasAchievedGoal = false;
@@ -168,13 +168,15 @@
  // TODO: Review the methods below once the implementation of the DFS algorithm is complete
  State getGoalState(ArRobot &robot);
  string deepFirstSearch(ArRobot &robot, State &rootState, State &goalState);
- void backtrackUntilLatestValidPosition(stack<State> &path, State &state);
+ void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state, stack<State> &listForbiddenStates);
  void addStateToPath(stack<State> &path, State &state);
  void printPath(stack<State> &path);
  bool wasPreviouslyVisited(stack<State> &path, double x, double y);
+ void addToListForbiddenState(State &state, stack<State> &listForbiddenStates);
+ bool isForbiddenItem(State &state, stack<State> &listForbiddenStates);
  //./TODO
 
- int evaluateCandidatesTakeDecision(ArRobot &robot, State &state);
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state, stack<State> &listForbiddenStates);
  double getDistanceAB(float aX, float aY, float bX, float bY);
  void verifyAchievedGoal(ArRobot &robot);
 
@@ -718,8 +720,12 @@
     State currentState = updateAgentState(robot, action, stepsCount);
     goForward(robot, 1);
     addStateToPath(Q, currentState);
+    stepsCount++;
 
     while (!hasAchievedGoal()) {
+      // Clear the screen for new logs
+      system("CLS");
+
       // Update the status of the hasAchievedGoal() function
       verifyAchievedGoal(robot);
 
@@ -727,13 +733,13 @@
       currentState = updateAgentState(robot, action, stepsCount);
       
       // Verify the candidate positions to where the robot can move to
-      action = evaluateCandidatesTakeDecision(robot, currentState);
+      action = evaluateCandidatesTakeDecision(robot, currentState, forbiddenStates);
 
       switch (action) {
 
           case ACTION_BACK:
              goBackward(robot, 1);
-             backtrackUntilLatestValidPosition(Q, currentState);
+             backtrackUntilLatestValidPosition(robot, Q, currentState, forbiddenStates);
              break;
 
           case ACTION_FRONT:
@@ -820,8 +826,14 @@
   *  2 - goLeft
   *  3 - goRight
   */
- int evaluateCandidatesTakeDecision(ArRobot &robot, State &state) {
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state, stack<State> &listForbiddenStates) {
     robot.lock();
+    
+    // If the current state is invalid, move back
+    if (isForbiddenItem(state, listForbiddenStates)) {
+       return ACTION_BACK;
+    }
+
     bool obstacleFront = false;
     bool obstacleLeft = false;
     bool obstacleRight = false;
@@ -975,20 +987,6 @@
                    return ACTION_RIGHT;
 
                 } else {
-                   // The current state was previously added as well as the projected states
-
-                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
-                   
-                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
-
-                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
-
-                   // 4 - If there is no valid alternative left, backtrack until the previous state
-
-                   // 5 - Navigate the robot back to the previous state
-
-                   // Perform the alternatives 1 - 5, until a valid alternative is returned
-                   
                    state.triedActionBackwards = true;
                    robot.unlock();
                    return ACTION_BACK;  
@@ -1028,20 +1026,6 @@
                    return ACTION_RIGHT;
 
                 } else {
-                   // The current state was previously added as well as the projected states
-
-                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
-                   
-                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
-
-                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
-
-                   // 4 - If there is no valid alternative left, backtrack until the previous state
-
-                   // 5 - Navigate the robot back to the previous state
-
-                   // Perform the alternatives 1 - 5, until a valid alternative is returned
-
                    state.triedActionBackwards = true;
                    robot.unlock();
                    return ACTION_BACK;
@@ -1081,20 +1065,6 @@
                    return ACTION_FRONT;
 
                 } else {
-                   // The current state was previously added as well as the projected states
-
-                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
-                   
-                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
-
-                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
-
-                   // 4 - If there is no valid alternative left, backtrack until the previous state
-
-                   // 5 - Navigate the robot back to the previous state
-
-                   // Perform the alternatives 1 - 5, until a valid alternative is returned
-                   
                    state.triedActionBackwards = true;
                    robot.unlock();
                    return ACTION_BACK;
@@ -1128,15 +1098,73 @@
     printPath(path);
  }
 
- void backtrackUntilLatestValidPosition(stack<State> &path, State &state) {
-    State previousState = path.top();
+ void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state, stack<State> &listForbiddenStates) {
+    // The current state was previously added as well as the projected states
+    bool foundValidPreviousState = false;
 
-    // Navigate back to the previous state
+    while (!foundValidPreviousState || path.empty()) {
+       // 1 - Recover the previous state in the stack and backtrack the stack until the recovered state
+       State previousState = path.top();
+      
+       // 2 - If there is no valid alternative left, backtrack until the previous state
+       if (!previousState.triedActionForward && !previousState.triedActionLeft && !previousState.triedActionRight) {
+        
+          // 3 - Remove the invalid state and add it to the list of forbidden states
+          previousState.isForbiddenState = true;
+          addToListForbiddenState(previousState, listForbiddenStates);
+          path.pop();
 
-    // Try a path at the last node that hasn't been explored, otherwise go back to the previous node.
+          // 4 - Move backwards
+          goBackward(robot, 1);
 
-    path.pop();
+       } else {
+          foundValidPreviousState = true;
+       }
+    }
+
     printPath(path);
+ }
+
+ void addToListForbiddenState(State &state, stack<State> &listForbiddenStates) {
+    bool alreadyAdded = false;
+    std::stack<State> forbiddenListCopy = listForbiddenStates;
+    int forbiddenListItemSize = listForbiddenStates.size();
+    
+    for (int i = 0; i < forbiddenListItemSize; i++) {
+      State forbiddenItem = listForbiddenStates.top();
+      listForbiddenStates.pop();
+
+      if (forbiddenItem.mapBlock.isCoordWithinBlock(state.mapBlock.x1 + 100, state.mapBlock.y1 + 100)) {
+         alreadyAdded = true;
+         break;  
+      }
+    }
+
+    listForbiddenStates = forbiddenListCopy;
+
+    if (!alreadyAdded) {
+       listForbiddenStates.push(state);
+    }
+ }
+
+ bool isForbiddenItem(State &state, stack<State> &listForbiddenStates) {
+    bool alreadyAdded = false;
+    std::stack<State> forbiddenListCopy = listForbiddenStates;
+    int forbiddenListItemSize = listForbiddenStates.size();
+    
+    for (int i = 0; i < forbiddenListItemSize; i++) {
+       State forbiddenItem = listForbiddenStates.top();
+       listForbiddenStates.pop();
+
+       if (forbiddenItem.mapBlock.isCoordWithinBlock(state.mapBlock.x1 + 100, state.mapBlock.y1 + 100)) {
+          alreadyAdded = true;
+          break;  
+       }
+    }
+
+    listForbiddenStates = forbiddenListCopy;
+
+    return alreadyAdded;
  }
 
  bool wasPreviouslyVisited(stack<State> &path, double x, double y) {
