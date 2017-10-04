@@ -168,8 +168,10 @@
  // TODO: Review the methods below once the implementation of the DFS algorithm is complete
  State getGoalState(ArRobot &robot);
  string deepFirstSearch(ArRobot &robot, State &rootState, State &goalState);
- void removeStateFromPath(stack<State> &path, State &state);
+ void backtrackUntilLatestValidPosition(stack<State> &path, State &state);
  void addStateToPath(stack<State> &path, State &state);
+ void printPath(stack<State> &path);
+ bool wasPreviouslyVisited(stack<State> &path, double x, double y);
  //./TODO
 
  int evaluateCandidatesTakeDecision(ArRobot &robot, State &state);
@@ -731,7 +733,7 @@
 
           case ACTION_BACK:
              goBackward(robot, 1);
-             removeStateFromPath(Q, currentState);
+             backtrackUntilLatestValidPosition(Q, currentState);
              break;
 
           case ACTION_FRONT:
@@ -742,11 +744,13 @@
           case ACTION_LEFT:
              turnLeft(robot);
              goForward(robot, 1);
+             addStateToPath(Q, currentState);
              break;
 
           case ACTION_RIGHT: 
              turnRight(robot);
              goForward(robot, 1);
+             addStateToPath(Q, currentState);
              break;
 
           default:
@@ -757,7 +761,7 @@
       stepsCount++;
 
       // Log
-      logRobotStatus(stepsCount, robot);
+      //logRobotStatus(stepsCount, robot);
    }
 
    return path;
@@ -822,19 +826,19 @@
     bool obstacleLeft = false;
     bool obstacleRight = false;
 
-    if (getLatestFrontDistance() < ROBOT_X_SIZE) {
+    if (getLatestFrontDistance() < ROBOT_X_SIZE * 1.5) {
        ArLog::log(ArLog::Normal, "Obstacle ahead");
        obstacleFront = true;
        state.triedActionForward = true;
     } 
 
-    if (getLatestLeftDistance() < ROBOT_X_SIZE) {
+    if (getLatestLeftDistance() < ROBOT_X_SIZE * 1.5) {
        ArLog::log(ArLog::Normal, "Obstacle on the left");
        obstacleLeft = true;
        state.triedActionLeft = true;
     } 
   
-    if (getLatestRightDistance() < ROBOT_X_SIZE) {
+    if (getLatestRightDistance() < ROBOT_X_SIZE * 1.5) {
        ArLog::log(ArLog::Normal, "Obstacle on the right");
        obstacleRight = true;
        state.triedActionRight = true;
@@ -857,6 +861,8 @@
        double projLeftCoordY = 0.0;
        double projRightCoordX = 0.0;
        double projRightCoordY = 0.0;
+       double projBackCoordX = 0.0;
+       double projBackCoordY = 0.0;
 
        if (!obstacleFront) {
           
@@ -930,9 +936,11 @@
           }
        }
 
+       /*
        ArLog::log(ArLog::Normal, "Distance if go front : [%.2f]", distCandFront);
        ArLog::log(ArLog::Normal, "Distance if go left : [%.2f]", distCandLeft);
        ArLog::log(ArLog::Normal, "Distance if go right : [%.2f]", distCandRight);
+       */
 
        if (distCandFront == 100000000.0) {
           state.triedActionForward = true;
@@ -951,23 +959,41 @@
           robot.unlock();
 
           if (!Q.empty()) {
-             State previousState = Q.top();
-            
-             if (previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+             
+             // If the state was added previously, give priority to the projected states
+             if (wasPreviouslyVisited(Q, projLeftCoordX, projLeftCoordY)) {
                          
                 if (!obstacleFront && distCandFront <= distCandRight && 
-                    previousState.mapBlock.isCoordWithinBlock(projFrontCoordX, projFrontCoordY)) {
+                    !wasPreviouslyVisited(Q, projFrontCoordX, projFrontCoordY)) {
                    return ACTION_FRONT;
             
-                } else if (!obstacleRight) {
+                } else if (!obstacleRight && 
+                           !wasPreviouslyVisited(Q, projRightCoordX, projRightCoordY)) {
                    return ACTION_RIGHT;
+
+                } else {
+                   // The current state was previously added as well as the projected states
+
+                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
+                   
+                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
+
+                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
+
+                   // 4 - If there is no valid alternative left, backtrack until the previous state
+
+                   // 5 - Navigate the robot back to the previous state
+
+                   // Perform the alternatives 1 - 5, until a valid alternative is returned
+
+                   return ACTION_BACK;  
                 }
              } else {
+                // This is a new state and it hasn't been added
                 return ACTION_LEFT;  
-             }
-            
-             return ACTION_BACK;  
+             } 
           } else {
+             // This the first iteratiction
              return ACTION_LEFT;
           }
        }
@@ -977,23 +1003,41 @@
           robot.unlock();
 
           if (!Q.empty()) {
-             State previousState = Q.top();
-          
-             if (previousState.mapBlock.isCoordWithinBlock(projFrontCoordX, projFrontCoordY)) {
+             
+             // If the state was added previously, give priority to the projected states
+             if (wasPreviouslyVisited(Q, projFrontCoordX, projFrontCoordY)) {
                        
                 if (!obstacleLeft && distCandLeft <= distCandRight && 
-                    previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+                    !wasPreviouslyVisited(Q, projLeftCoordX, projLeftCoordY)) {
                    return ACTION_LEFT;
           
-                } else if (!obstacleRight) {
+                } else if (!obstacleRight && 
+                           !wasPreviouslyVisited(Q, projRightCoordX, projRightCoordY)) {
                    return ACTION_RIGHT;
+
+                } else {
+                   // The current state was previously added as well as the projected states
+
+                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
+                   
+                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
+
+                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
+
+                   // 4 - If there is no valid alternative left, backtrack until the previous state
+
+                   // 5 - Navigate the robot back to the previous state
+
+                   // Perform the alternatives 1 - 5, until a valid alternative is returned
+
+                   return ACTION_BACK;
                 }
              } else {
+                // This is a new state and it hasn't been added
                 return ACTION_FRONT;
              }
-          
-             return ACTION_BACK;
           } else {
+             // This the first iteratiction
              return ACTION_FRONT;
           }
        }
@@ -1003,28 +1047,45 @@
           robot.unlock();
 
           if (!Q.empty()) {
-             State previousState = Q.top();
-          
-             if (previousState.mapBlock.isCoordWithinBlock(projRightCoordX, projRightCoordY)) {
+             
+             // If the state was added previously, give priority to the projected states
+             if (wasPreviouslyVisited(Q, projRightCoordX, projRightCoordY)) {
                        
                 if (!obstacleLeft && distCandLeft <= distCandRight && 
-                    previousState.mapBlock.isCoordWithinBlock(projLeftCoordX, projLeftCoordY)) {
+                    !wasPreviouslyVisited(Q, projLeftCoordX, projLeftCoordY)) {
                    return ACTION_LEFT;
           
-                } else if (!obstacleRight) {
-                   return ACTION_RIGHT;
+                } else if (!obstacleFront && 
+                           !wasPreviouslyVisited(Q, projFrontCoordX, projFrontCoordY)) {
+                   return ACTION_FRONT;
+
+                } else {
+                   // The current state was previously added as well as the projected states
+
+                   // 1 - Check which alternatives of current state weren't tried in the previous iterations
+                   
+                   // 2 - Recover the previous state in the stack and backtrack the stack until the recovered state
+
+                   // 3 - Return the best valid alternative of the recovered state that wasn't tried
+
+                   // 4 - If there is no valid alternative left, backtrack until the previous state
+
+                   // 5 - Navigate the robot back to the previous state
+
+                   // Perform the alternatives 1 - 5, until a valid alternative is returned
+                   
+                   return ACTION_BACK;
                 }
              } else {
+                // This is a new state and it hasn't been added
                 return ACTION_RIGHT;
              }
-          
-             return ACTION_BACK;
           } else {
+             // This the first iteratiction
              return ACTION_RIGHT;
           }
        }
 
-       ArLog::log(ArLog::Normal, "Couldn't find a better action, go forward");
        robot.unlock();
        return ACTION_BACK;
     }
@@ -1034,7 +1095,12 @@
     return sqrt(pow(abs(aX - bX), 2) + pow(abs(aY - bY), 2));
  }
 
- void removeStateFromPath(stack<State> &path, State &state) {
+ void addStateToPath(stack<State> &path, State &state) {
+    path.push(state);
+    printPath(path);
+ }
+
+ void backtrackUntilLatestValidPosition(stack<State> &path, State &state) {
     State previousState = path.top();
 
     // Navigate back to the previous state
@@ -1042,8 +1108,69 @@
     // Try a path at the last node that hasn't been explored, otherwise go back to the previous node.
 
     path.pop();
+    printPath(path);
  }
 
- void addStateToPath(stack<State> &path, State &state) {
-    path.push(state);
+ bool wasPreviouslyVisited(stack<State> &path, double x, double y) {
+    std::stack<State> backTrack;
+    backTrack = path;
+
+    cout << "--------------------------------------" << endl;
+    cout << "CHECKING IF BLOCK WAS PREVIOUSLY ADDED" << endl;
+
+    for (int i = 0; i < path.size(); ++i) {
+       State state = backTrack.top();
+       backTrack.pop();
+
+       cout << "..........................." << endl;
+       cout << "State:" << endl;
+       cout << "stepNumber: " << endl;
+       cout << state.stepNumber << endl;
+       cout << "mapBlock: " << endl;
+       cout << state.mapBlock.x1 << endl;
+       cout << state.mapBlock.x2 << endl;
+       cout << state.mapBlock.y1 << endl;
+       cout << state.mapBlock.y2 << endl;
+       cout << "state.triedActionForward: " << endl;
+       cout << state.triedActionForward << endl;
+       cout << "state.triedActionLeft: " << endl;
+       cout << state.triedActionLeft << endl;
+       cout << "state.triedActionRight: " << endl;
+       cout << state.triedActionRight << endl;
+       cout << "state.triedActionBackwards: " << endl;
+       cout << state.triedActionBackwards << endl;
+       cout << "state.isForbiddenState: " << endl;
+       cout << state.isForbiddenState << endl;
+       cout << "..........................." << endl;
+       
+       if (state.mapBlock.isCoordWithinBlock(x, y)) {
+          cout << "---------------------" << endl;
+          cout << "WAS PREVIOUSLY ADDED" << endl;
+          cout << "x: " << endl;
+          cout << x << endl;
+          cout << "y: " << endl;
+          cout << y << endl;
+          cout << "FINISHED PATH SEARCH FOR PREVIOUS POSITIONS" << endl;
+          cout << "-------------------------------------------" << endl;
+
+          return true;
+       }
+    }
+
+    cout << "FINISHED PATH SEARCH FOR PREVIOUS POSITIONS" << endl;
+    cout << "-------------------------------------------" << endl;
+
+    return false;
+ }
+
+ void printPath(stack<State> &path) {
+    std::stack<State> backTrack;
+    std::stack<State> tempBackPath;
+    backTrack = path;
+
+    for (int i = 0; i < path.size(); ++i) {
+       State state = backTrack.top();
+       tempBackPath.push(state);
+       backTrack.pop();
+    }
  }
