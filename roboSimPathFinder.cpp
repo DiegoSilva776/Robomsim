@@ -956,8 +956,7 @@
 
        // If the left candidate is the closest to the goal, Turn Left
        if (!obstacleLeft && distCandLeft < distCandFront && distCandLeft < distCandRight) {
-          robot.unlock();
-
+          
           if (!Q.empty()) {
              
              // If the state was added previously, give priority to the projected states
@@ -965,10 +964,14 @@
                          
                 if (!obstacleFront && distCandFront <= distCandRight && 
                     !wasPreviouslyVisited(Q, projFrontCoordX, projFrontCoordY)) {
+                   state.triedActionForward = true;
+                   robot.unlock();
                    return ACTION_FRONT;
             
                 } else if (!obstacleRight && 
                            !wasPreviouslyVisited(Q, projRightCoordX, projRightCoordY)) {
+                   state.triedActionRight = true;
+                   robot.unlock();
                    return ACTION_RIGHT;
 
                 } else {
@@ -985,23 +988,28 @@
                    // 5 - Navigate the robot back to the previous state
 
                    // Perform the alternatives 1 - 5, until a valid alternative is returned
-
+                   
+                   state.triedActionBackwards = true;
+                   robot.unlock();
                    return ACTION_BACK;  
                 }
              } else {
                 // This is a new state and it hasn't been added
+                state.triedActionLeft = true;
+                robot.unlock();
                 return ACTION_LEFT;  
              } 
           } else {
              // This the first iteratiction
+             state.triedActionLeft = true;
+             robot.unlock();
              return ACTION_LEFT;
           }
        }
 
        // If the front candidate is the closest to the goal, Go Forward
        if (!obstacleFront && distCandFront <= distCandLeft && distCandFront <= distCandRight) {
-          robot.unlock();
-
+          
           if (!Q.empty()) {
              
              // If the state was added previously, give priority to the projected states
@@ -1009,10 +1017,14 @@
                        
                 if (!obstacleLeft && distCandLeft <= distCandRight && 
                     !wasPreviouslyVisited(Q, projLeftCoordX, projLeftCoordY)) {
+                   state.triedActionLeft = true;
+                   robot.unlock();
                    return ACTION_LEFT;
           
                 } else if (!obstacleRight && 
                            !wasPreviouslyVisited(Q, projRightCoordX, projRightCoordY)) {
+                   state.triedActionRight = true;
+                   robot.unlock();
                    return ACTION_RIGHT;
 
                 } else {
@@ -1030,22 +1042,27 @@
 
                    // Perform the alternatives 1 - 5, until a valid alternative is returned
 
+                   state.triedActionBackwards = true;
+                   robot.unlock();
                    return ACTION_BACK;
                 }
              } else {
                 // This is a new state and it hasn't been added
+                state.triedActionForward = true;
+                robot.unlock();
                 return ACTION_FRONT;
              }
           } else {
              // This the first iteratiction
+             state.triedActionForward = true;
+             robot.unlock();
              return ACTION_FRONT;
           }
        }
 
        // If the right candidate is the closest to the goal, Turn Right
        if (!obstacleRight && distCandRight < distCandLeft && distCandRight < distCandFront) {
-          robot.unlock();
-
+          
           if (!Q.empty()) {
              
              // If the state was added previously, give priority to the projected states
@@ -1053,10 +1070,14 @@
                        
                 if (!obstacleLeft && distCandLeft <= distCandRight && 
                     !wasPreviouslyVisited(Q, projLeftCoordX, projLeftCoordY)) {
+                   state.triedActionLeft = true;
+                   robot.unlock();
                    return ACTION_LEFT;
           
                 } else if (!obstacleFront && 
                            !wasPreviouslyVisited(Q, projFrontCoordX, projFrontCoordY)) {
+                   state.triedActionForward = true;
+                   robot.unlock();
                    return ACTION_FRONT;
 
                 } else {
@@ -1074,18 +1095,25 @@
 
                    // Perform the alternatives 1 - 5, until a valid alternative is returned
                    
+                   state.triedActionBackwards = true;
+                   robot.unlock();
                    return ACTION_BACK;
                 }
              } else {
                 // This is a new state and it hasn't been added
+                state.triedActionRight = true;
+                robot.unlock();
                 return ACTION_RIGHT;
              }
           } else {
              // This the first iteratiction
+             state.triedActionRight = true;
+             robot.unlock();
              return ACTION_RIGHT;
           }
        }
 
+       state.triedActionBackwards = true;
        robot.unlock();
        return ACTION_BACK;
     }
