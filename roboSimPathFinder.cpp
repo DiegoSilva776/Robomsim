@@ -25,6 +25,7 @@
   * CLASSES
   */
  class MapBlock {
+
     public:
        double x1;
        double x2;
@@ -32,22 +33,20 @@
        double y2;
        
        bool isCoordWithinBlock(double x, double y) {
-          return x1 < x && x < x2 && 
-                 y1 < y && y < y2; 
+          return x1 < x && x < x2 && y1 < y && y < y2; 
        }
 
-       string toString() {
-          return "([" + str(x1) + "," + str(x2) + "], [" + str(y1) + "," + str(y2) + "])";
+       void toString() {
+          printf ("\n...........................................");
+          printf ("\nMapBlock: ");
+          printf ("\n(x[%.2f,%.2f], y[%.2f,%.2f])", x1, x2, y1, y2);
+          printf ("\n...........................................");
        }
 
-       string str(double number) {
-          std::ostringstream strs;
-          strs << number;
-          std::string str = strs.str();
-       }
  };
 
  class State {
+
     public:
        int stepNumber;
        MapBlock mapBlock;
@@ -58,6 +57,19 @@
        bool isForbiddenState;
 
        vector<State> children;
+
+       void toString() {
+          printf ("\nState");
+          printf ("\nStep number: %d", stepNumber);
+          mapBlock.toString();
+          printf ("\nTried forward: %d", triedActionForward);
+          printf ("\nTried left: %d", triedActionLeft);
+          printf ("\nTried right: %d", triedActionRight);
+          printf ("\nTried backward: %d", triedActionBackwards);
+          printf ("\nIs a forbidden state: %d", isForbiddenState);
+          printf ("\n-------------------------------------------");
+       }
+
  };
 
  /**
@@ -90,6 +102,8 @@
  float mLatestRot = 0.0;
  float mLatestSpeed = 0.0;
 
+ float mOriginX = 0.0;
+ float mOriginY = 0.0;
  float mGoalX = 0.0;
  float mGoalY = 0.0;
  double mDistanceFromGoal = 0.0;
@@ -97,7 +111,6 @@
  double mLeftDistance = 0.0;
  double mFrontDistance = 0.0;
  double mRightDistance = 0.0;
-
  
  /**
   * FUNCTIONS' DECLARATION
@@ -120,6 +133,10 @@
  void setLatestSpeed(float speed);
  float getLatestSpeed();
 
+ void setInitialX(float x);
+ float getInitialX();
+ void setInitialY(float y);
+ float getInitialY();
  void setGoalX(float x);
  float getGoalX();
  void setGoalY(float y);
@@ -167,18 +184,17 @@
   */
  // TODO: Review the methods below once the implementation of the DFS algorithm is complete
  State getGoalState(ArRobot &robot);
- string deepFirstSearch(ArRobot &robot, State &rootState, State &goalState);
- void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state, stack<State> &listForbiddenStates);
+ void deepFirstSearch(ArRobot &robot, State &rootState, State &goalState);
+ void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state);
  void addStateToPath(stack<State> &path, State &state);
- void printPath(stack<State> &path);
  bool wasPreviouslyVisited(stack<State> &path, double x, double y);
- void addToListForbiddenState(State &state, stack<State> &listForbiddenStates);
- bool isForbiddenItem(State &state, stack<State> &listForbiddenStates);
- //./TODO
-
- int evaluateCandidatesTakeDecision(ArRobot &robot, State &state, stack<State> &listForbiddenStates);
+ void addToListForbiddenState(State &state);
+ bool isForbiddenItem(State &state);
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state);
  double getDistanceAB(float aX, float aY, float bX, float bY);
  void verifyAchievedGoal(ArRobot &robot);
+ void printPath(stack<State> &path);
+ //./TODO
 
  /**
   * Log
@@ -196,7 +212,8 @@
  
     // Get the initialization arguments
     readConfigArgs(argc, argv);
-    
+
+    // Start map
     ArRobot robot;
     ArArgumentParser parser(&argc, argv);
     parser.loadDefaultArguments();
@@ -218,7 +235,7 @@
    
     ArLog::log(ArLog::Normal, "simpleConnect: Connected to robot.");
    
-    // AddDevices
+    // Add Devices
     // Sonar
     ArSonarDevice sonar;
     robot.addRangeDevice(&sonar);
@@ -233,11 +250,11 @@
     // Update the status of the sensors and the speed of the robot 
     State rootState = updateAgentState(robot, 0, 0);
     State goalState = getGoalState(robot);
-    string path = deepFirstSearch(robot, rootState, goalState);
+    deepFirstSearch(robot, rootState, goalState);
 
-    cout << "........ Path ........." << endl;
-    cout << path << endl;
-    
+    // Print the path from the origin to the goal
+    printPath(Q);
+
     robot.stopRunning();
     robot.waitForRunExit();
    
@@ -250,7 +267,7 @@
   * FUNCTIONS' IMPLEMENTATION
   */
  /**
-  * Input
+  * Input processing
   */
  void readConfigArgs(int argc, char **argv) {
     numArgs = argc - 1;
@@ -301,27 +318,26 @@
     }
 
     // Set up the initial position of the robot and the goal
+    setInitialX(robotConfigArgs[0]);
+    setInitialY(robotConfigArgs[1]);
     setLatestX(robotConfigArgs[0]);
     setLatestY(robotConfigArgs[1]);
     setLatestRotation(robotConfigArgs[2]);
     setGoalX(goalConfigArgs[0]);
     setGoalY(goalConfigArgs[1]);
 
-    cout << "........................" << endl;
-    cout << "CONFIGURATION ARGUMENTS: " << endl;
-    cout << "" << endl;
-    cout << "Drobot.coord filename: " << endl;
-    cout << args[ARG_DROBOT_COORD] << endl;
-    cout << "" << endl;
-    cout << "Robot config args: " << endl;
-    cout << robotConfigArgs[0] << endl;
-    cout << robotConfigArgs[1] << endl;
-    cout << robotConfigArgs[2] << endl;
-    cout << "" << endl;
-    cout << "Goal config args: " << endl;
-    cout << goalConfigArgs[0] << endl;
-    cout << goalConfigArgs[1] << endl;
-    cout << "........................" << endl;
+    printf("\n........................");
+    printf("\nCONFIGURATION ARGUMENTS:");
+    printf("\n\nDrobot.coord filename:");
+    printf("\n%s", args[ARG_DROBOT_COORD].c_str());
+    printf("\n\nRobot config args: ");
+    printf("\n%.2f", robotConfigArgs[0]);
+    printf("\n%.2f", robotConfigArgs[1]);
+    printf("\n%.2f", robotConfigArgs[2]);
+    printf("\n\nGoal config args: ");
+    printf("\n%.2f", goalConfigArgs[0]);
+    printf("\n%.2f", goalConfigArgs[1]);
+    printf("\n........................");
 
     drobotCoordsFile.close();
  }
@@ -329,6 +345,22 @@
  /**
   * Setters & Getters
   */
+ void setInitialX(float x) {
+    mOriginX = x;
+ }
+
+ float getInitialX() {
+    return mOriginX;
+ }
+
+ void setInitialY(float y) {
+    mOriginY = y;
+ }
+
+ float getInitialY() {
+    return mOriginY;
+ }
+
  void setLatestX(float x) {
     mLatestX = x;
  }
@@ -422,7 +454,7 @@
   */
  void normalizeRobotRotation(ArRobot &robot) {
     // Set the initial position of the robot logically
-    robot.moveTo(ArPose(getLatestX(),getLatestY(),getLatestRotation()));
+    robot.moveTo(ArPose(getLatestX(), getLatestY(), getLatestRotation()));
     ArUtil::sleep(1000);
 
     // Set the initial position of the robot phisically, step 1
@@ -431,10 +463,10 @@
     
     if (getLatestRotation() > 0) {
        robot.setRotVel(-getLatestRotation());
-       ArLog::log(ArLog::Normal, "Normalizing the intial rotation of the robot %.2f", -getLatestRotation());
+       ArLog::log(ArLog::Normal, "\nNormalizing the intial rotation of the robot %.2f", -getLatestRotation());
     } else {
        robot.setRotVel(getLatestRotation());
-       ArLog::log(ArLog::Normal, "Normalizing the intial rotation of the robot %.2f", getLatestRotation());
+       ArLog::log(ArLog::Normal, "\nNormalizing the intial rotation of the robot %.2f", getLatestRotation());
     }
         
     robot.unlock();
@@ -452,15 +484,12 @@
 
     for (int i = 0; i < numBlocks; i++) {
        robot.lock();
-       ArLog::log(ArLog::Normal, "Moving forward, block : (%.d/%.d)", i + 1, numBlocks);
-       robot.unlock();
- 
-       robot.lock();
+       ArLog::log(ArLog::Normal, "\nMoving forward, block : (%.d/%.d)", i + 1, numBlocks);
        robot.setRotVel(0);
        robot.setVel(BASE_BLOCK_VEL_MM_SEC);
        robot.unlock();
-       ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC);
  
+       ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC);
        stop(robot);
     }
  }
@@ -473,15 +502,12 @@
 
    for (int i = 0; i < numBlocks; i++) {
       robot.lock();
-      ArLog::log(ArLog::Normal, "Moving backward, block : (%.d/%.d)", i + 1, numBlocks);
-      robot.unlock();
- 
-      robot.lock();
+      ArLog::log(ArLog::Normal, "\nMoving backward, block : (%.d/%.d)", i + 1, numBlocks);
       robot.setRotVel(0);
       robot.setVel(BASE_BLOCK_VEL_MM_SEC);
       robot.unlock();
+
       ArUtil::sleep(BASE_BLOCK_TIME_MOTION_SEC);
- 
       stop(robot);
    }
  }
@@ -490,41 +516,36 @@
     robot.lock();
     float desiredCurrentAngle = round(robot.getTh() / 90) * 90;
     float correctionAngle = desiredCurrentAngle - robot.getTh();
-    ArLog::log(ArLog::Normal, "correctionAngle: %.2f", correctionAngle);
+    ArLog::log(ArLog::Normal, "\ncorrectionAngle: %.2f", correctionAngle);
     robot.setRotVel(correctionAngle);
     robot.unlock();
+
     ArUtil::sleep(1000); 
  }
 
  void turnLeft(ArRobot &robot) {
     robot.lock();
-    ArLog::log(ArLog::Normal, "Turning left ...");
-    robot.unlock();
- 
-    robot.lock();
+    ArLog::log(ArLog::Normal, "\nTurning left ...");
     robot.setRotVel(90);
     robot.unlock();
-    ArUtil::sleep(1020);
     
+    ArUtil::sleep(1020);
     stop(robot);
  }
  
  void turnRight(ArRobot &robot) {
     robot.lock();
-    ArLog::log(ArLog::Normal, "Turning right ...");
-    robot.unlock();
- 
-    robot.lock();
+    ArLog::log(ArLog::Normal, "\nTurning right ...");
     robot.setRotVel(-90);
     robot.unlock();
-    ArUtil::sleep(1030);
  
+    ArUtil::sleep(1030);
     stop(robot);
  }
  
  void turnBackwards(ArRobot &robot) {
     robot.lock();
-    ArLog::log(ArLog::Normal, "Turning backwards ...");
+    ArLog::log(ArLog::Normal, "\nTurning backwards ...");
     robot.unlock();
  
     turnLeft(robot);
@@ -535,6 +556,7 @@
     robot.lock();
     robot.stop();
     robot.unlock();
+
     ArUtil::sleep(1500);
  }
 
@@ -684,105 +706,81 @@
     robot.unlock();
  }
 
- string deepFirstSearch(ArRobot &robot, State &root, State &goal) {
-    /*
-    Q.push(root);
-
-    while (!Q.empty()) {
-      State t = Q.top();
-      path += t.mapBlock.toString();
-
-      Q.pop();
-
-      verifyAchievedGoal(robot);
-
-      if (hasAchievedGoal()) {
-        return path;
-      }
-
-      if (t.mapBlock.isCoordWithinBlock(goal.mapBlock.x1, goal.mapBlock.y1)) {
-        return path;
-      }
-
-      children = t.children;
-      std::reverse(children.begin(), children.end());
-
-      for (int i = 0; i < children.size(); ++i){
-        Q.push(children[i]);
-      }
-    }
-    */
-
+ void deepFirstSearch(ArRobot &robot, State &root, State &goal) {
+    // Initialize the system
+    State currentState;
     int stepsCount = 0;
     int action = 0;
     
-    // Initialize the system
-    State currentState = updateAgentState(robot, action, stepsCount);
-    goForward(robot, 1);
-    addStateToPath(Q, currentState);
-    stepsCount++;
-
-    while (!hasAchievedGoal()) {
+    // Main loop
+    while (!hasAchievedGoal()) {   
       // Clear the screen for new logs
-      system("CLS");
+      system("clear");
 
-      // Update the status of the hasAchievedGoal() function
-      verifyAchievedGoal(robot);
+      if (stepsCount == 0) {
+         State currentState = updateAgentState(robot, action, stepsCount);
+         goForward(robot, 1);
+         currentState.triedActionForward = true;
+         addStateToPath(Q, currentState);
 
-      // Update the status of the sensors and the speed of the robot 
-      currentState = updateAgentState(robot, action, stepsCount);
+      } else {
+         // Update the status of the hasAchievedGoal() function
+         verifyAchievedGoal(robot);
       
-      // Verify the candidate positions to where the robot can move to
-      action = evaluateCandidatesTakeDecision(robot, currentState, forbiddenStates);
-
-      switch (action) {
-
-          case ACTION_BACK:
-             goBackward(robot, 1);
-             backtrackUntilLatestValidPosition(robot, Q, currentState, forbiddenStates);
-             break;
-
-          case ACTION_FRONT:
-             goForward(robot, 1);
-             addStateToPath(Q, currentState);
-             break;
-
-          case ACTION_LEFT:
-             turnLeft(robot);
-             goForward(robot, 1);
-             addStateToPath(Q, currentState);
-             break;
-
-          case ACTION_RIGHT: 
-             turnRight(robot);
-             goForward(robot, 1);
-             addStateToPath(Q, currentState);
-             break;
-
-          default:
-             ArUtil::sleep(1000);
-             break;
+         // Update the status of the sensors and the speed of the robot 
+         currentState = updateAgentState(robot, action, stepsCount);
+            
+         // Verify the candidate positions to where the robot can move to
+         action = evaluateCandidatesTakeDecision(robot, currentState);
+      
+         switch (action) {
+      
+            case ACTION_BACK:
+               goBackward(robot, 1);
+               backtrackUntilLatestValidPosition(robot, Q, currentState);
+               break;
+      
+            case ACTION_FRONT:
+               goForward(robot, 1);
+               addStateToPath(Q, currentState);
+               break;
+      
+            case ACTION_LEFT:
+               turnLeft(robot);
+               goForward(robot, 1);
+               addStateToPath(Q, currentState);
+               break;
+      
+            case ACTION_RIGHT: 
+               turnRight(robot);
+               goForward(robot, 1);
+               addStateToPath(Q, currentState);
+               break;
+      
+            default:
+               ArUtil::sleep(1000);
+               break;
+         }
       }
 
       stepsCount++;
-
+      
       // Log
-      //logRobotStatus(stepsCount, robot);
+      //logRobotStatus(stepsCount, robot);  
    }
-
-   return path;
+   // ./Main loop
  }
 
  void verifyAchievedGoal(ArRobot &robot) {
-  robot.lock();
+    robot.lock();
   
-  if (abs(robot.getX() - getGoalX()) < MIN_COLISION_RANGE_MM && 
-      abs(robot.getY() - getGoalY()) < MIN_COLISION_RANGE_MM) {
-     setHasAchievedGoal(true);
-     ArLog::log(ArLog::Normal, "Robot has achieved goal [:");
-  }
+    if (abs(robot.getX() - getGoalX()) < MIN_COLISION_RANGE_MM && 
+       abs(robot.getY() - getGoalY()) < MIN_COLISION_RANGE_MM) {
+       setHasAchievedGoal(true);
+       ArLog::log(ArLog::Normal, "\nRobot has achieved goal [:");
+    }
 
-  robot.unlock();
+    robot.unlock();
  }
 
  State updateAgentState(ArRobot &robot, int action, int stepsCount) {
@@ -807,6 +805,7 @@
     state.triedActionBackwards = false;
     state.isForbiddenState = false;
 
+    ArLog::log(ArLog::Normal, "");
     ArLog::log(ArLog::Normal, "Current MapBlock");
     ArLog::log(ArLog::Normal, "mapBlock.x1 %.2f", mapBlock.x1);
     ArLog::log(ArLog::Normal, "mapBlock.x2 %.2f", mapBlock.x2);
@@ -826,11 +825,11 @@
   *  2 - goLeft
   *  3 - goRight
   */
- int evaluateCandidatesTakeDecision(ArRobot &robot, State &state, stack<State> &listForbiddenStates) {
+ int evaluateCandidatesTakeDecision(ArRobot &robot, State &state) {
     robot.lock();
     
     // If the current state is invalid, move back
-    if (isForbiddenItem(state, listForbiddenStates)) {
+    if (isForbiddenItem(state)) {
        return ACTION_BACK;
     }
 
@@ -839,19 +838,19 @@
     bool obstacleRight = false;
 
     if (getLatestFrontDistance() < ROBOT_X_SIZE * 1.5) {
-       ArLog::log(ArLog::Normal, "Obstacle ahead");
+       ArLog::log(ArLog::Normal, "\nObstacle ahead");
        obstacleFront = true;
        state.triedActionForward = true;
     } 
 
     if (getLatestLeftDistance() < ROBOT_X_SIZE * 1.5) {
-       ArLog::log(ArLog::Normal, "Obstacle on the left");
+       ArLog::log(ArLog::Normal, "\nObstacle on the left");
        obstacleLeft = true;
        state.triedActionLeft = true;
     } 
   
     if (getLatestRightDistance() < ROBOT_X_SIZE * 1.5) {
-       ArLog::log(ArLog::Normal, "Obstacle on the right");
+       ArLog::log(ArLog::Normal, "\nObstacle on the right");
        obstacleRight = true;
        state.triedActionRight = true;
     }
@@ -1095,10 +1094,9 @@
 
  void addStateToPath(stack<State> &path, State &state) {
     path.push(state);
-    printPath(path);
  }
 
- void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state, stack<State> &listForbiddenStates) {
+ void backtrackUntilLatestValidPosition(ArRobot &robot, stack<State> &path, State &state) {
     // The current state was previously added as well as the projected states
     bool foundValidPreviousState = false;
 
@@ -1111,7 +1109,7 @@
         
           // 3 - Remove the invalid state and add it to the list of forbidden states
           previousState.isForbiddenState = true;
-          addToListForbiddenState(previousState, listForbiddenStates);
+          addToListForbiddenState(previousState);
           path.pop();
 
           // 4 - Move backwards
@@ -1121,18 +1119,16 @@
           foundValidPreviousState = true;
        }
     }
-
-    printPath(path);
  }
 
- void addToListForbiddenState(State &state, stack<State> &listForbiddenStates) {
+ void addToListForbiddenState(State &state) {
     bool alreadyAdded = false;
-    std::stack<State> forbiddenListCopy = listForbiddenStates;
-    int forbiddenListItemSize = listForbiddenStates.size();
+    std::stack<State> forbiddenListCopy = forbiddenStates;
+    int forbiddenListItemSize = forbiddenStates.size();
     
     for (int i = 0; i < forbiddenListItemSize; i++) {
-      State forbiddenItem = listForbiddenStates.top();
-      listForbiddenStates.pop();
+      State forbiddenItem = forbiddenStates.top();
+      forbiddenStates.pop();
 
       if (forbiddenItem.mapBlock.isCoordWithinBlock(state.mapBlock.x1 + 100, state.mapBlock.y1 + 100)) {
          alreadyAdded = true;
@@ -1140,21 +1136,21 @@
       }
     }
 
-    listForbiddenStates = forbiddenListCopy;
+    forbiddenStates = forbiddenListCopy;
 
     if (!alreadyAdded) {
-       listForbiddenStates.push(state);
+      forbiddenStates.push(state);
     }
  }
 
- bool isForbiddenItem(State &state, stack<State> &listForbiddenStates) {
+ bool isForbiddenItem(State &state) {
     bool alreadyAdded = false;
-    std::stack<State> forbiddenListCopy = listForbiddenStates;
-    int forbiddenListItemSize = listForbiddenStates.size();
+    std::stack<State> forbiddenListCopy = forbiddenStates;
+    int forbiddenListItemSize = forbiddenStates.size();
     
     for (int i = 0; i < forbiddenListItemSize; i++) {
-       State forbiddenItem = listForbiddenStates.top();
-       listForbiddenStates.pop();
+       State forbiddenItem = forbiddenStates.top();
+       forbiddenStates.pop();
 
        if (forbiddenItem.mapBlock.isCoordWithinBlock(state.mapBlock.x1 + 100, state.mapBlock.y1 + 100)) {
           alreadyAdded = true;
@@ -1162,71 +1158,72 @@
        }
     }
 
-    listForbiddenStates = forbiddenListCopy;
+    forbiddenStates = forbiddenListCopy;
 
     return alreadyAdded;
  }
 
  bool wasPreviouslyVisited(stack<State> &path, double x, double y) {
-    std::stack<State> backTrack;
-    backTrack = path;
+    stack<State> reversePathOriginGoal;
+    int pathSize = path.size();
 
-    cout << "--------------------------------------" << endl;
-    cout << "CHECKING IF BLOCK WAS PREVIOUSLY ADDED" << endl;
+    // Invert the order of the items putting the first one at the top
+    for (int i = 0; i < pathSize; ++i) {
+       State state = path.top();
+       path.pop();
+       reversePathOriginGoal.push(state);
+    }
 
-    for (int i = 0; i < path.size(); ++i) {
-       State state = backTrack.top();
-       backTrack.pop();
+    // Print the coordinates of each valid state of the path from the origin to the goal
+    printf("\n--------------------------------------");
+    printf("\nCHECKING IF BLOCK WAS PREVIOUSLY ADDED");
 
-       cout << "..........................." << endl;
-       cout << "State:" << endl;
-       cout << "stepNumber: " << endl;
-       cout << state.stepNumber << endl;
-       cout << "mapBlock: " << endl;
-       cout << state.mapBlock.x1 << endl;
-       cout << state.mapBlock.x2 << endl;
-       cout << state.mapBlock.y1 << endl;
-       cout << state.mapBlock.y2 << endl;
-       cout << "state.triedActionForward: " << endl;
-       cout << state.triedActionForward << endl;
-       cout << "state.triedActionLeft: " << endl;
-       cout << state.triedActionLeft << endl;
-       cout << "state.triedActionRight: " << endl;
-       cout << state.triedActionRight << endl;
-       cout << "state.triedActionBackwards: " << endl;
-       cout << state.triedActionBackwards << endl;
-       cout << "state.isForbiddenState: " << endl;
-       cout << state.isForbiddenState << endl;
-       cout << "..........................." << endl;
+    for (int i = 0; i < pathSize; ++i) {
+       // Rebuild path from origin to goal
+       State state = reversePathOriginGoal.top();
+       reversePathOriginGoal.pop();
+       path.push(state);
        
+       // Print information about each state 
+       state.toString();
+
        if (state.mapBlock.isCoordWithinBlock(x, y)) {
-          cout << "---------------------" << endl;
-          cout << "WAS PREVIOUSLY ADDED" << endl;
-          cout << "x: " << endl;
-          cout << x << endl;
-          cout << "y: " << endl;
-          cout << y << endl;
-          cout << "FINISHED PATH SEARCH FOR PREVIOUS POSITIONS" << endl;
-          cout << "-------------------------------------------" << endl;
+          printf("\n---------------------");
+          printf("\nWAS PREVIOUSLY ADDED");
+          printf("\nx: %.2f, y: %.2f", x, y);
+          printf("\nFINISHED PATH SEARCH FOR PREVIOUS POSITIONS");
+          printf("\n-------------------------------------------");
 
           return true;
        }
     }
 
-    cout << "FINISHED PATH SEARCH FOR PREVIOUS POSITIONS" << endl;
-    cout << "-------------------------------------------" << endl;
+    printf("\nFINISHED PATH SEARCH FOR PREVIOUS POSITIONS");
+    printf("\n-------------------------------------------");
 
     return false;
  }
 
  void printPath(stack<State> &path) {
-    std::stack<State> backTrack;
-    std::stack<State> tempBackPath;
-    backTrack = path;
+    stack<State> reversePathOriginGoal;
+    int pathSize = path.size();
 
-    for (int i = 0; i < path.size(); ++i) {
-       State state = backTrack.top();
-       tempBackPath.push(state);
-       backTrack.pop();
+    // Invert the order of the items putting the first one at the top
+    for (int i = 0; i < pathSize; ++i) {
+       State state = path.top();
+       path.pop();
+       reversePathOriginGoal.push(state);
     }
+
+    // Print the coordinates of each valid state of the path from the origin to the goal
+    printf("\n.......................");
+    printf("\nFINAL PATH FROM ORIGIN [%.2f, %.2f] TO GOAL [%.2f, %.2f] : ", getInitialX(), getInitialY(), getGoalX(), getGoalY());
+
+    for (int i = 0; i < pathSize; ++i) {
+       State state = reversePathOriginGoal.top();
+       reversePathOriginGoal.pop();
+       printf("\nx[%.2f,%.2f] y[%.2f,%.2f]", state.mapBlock.x1, state.mapBlock.x2, state.mapBlock.y1, state.mapBlock.y2);
+    }
+
+    printf("\n.......................\n");
  }
